@@ -1,0 +1,15 @@
+# Sedifex Developer Docs
+
+> Canonical docs for Sedifex developer integrations.
+
+## Core pages
+- Home: https://developer.sedifex.com/
+- Quickstart: https://developer.sedifex.com/quickstart.html
+- API reference: https://developer.sedifex.com/api-reference.html
+- Webhooks: https://developer.sedifex.com/webhooks.html
+- Guides: https://developer.sedifex.com/guides.html
+- Troubleshooting: https://developer.sedifex.com/troubleshooting.html
+
+## Crawling
+- robots: https://developer.sedifex.com/robots.txt
+- sitemap: https://developer.sedifex.com/sitemap.xml
