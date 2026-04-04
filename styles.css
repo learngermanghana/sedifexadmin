@@ -70,7 +70,23 @@ body {
 }
 
 .hero {
-  padding: 5.5rem 0 3rem;
+  padding: 4.8rem 0 2.7rem;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 1.4rem;
+  align-items: center;
+}
+
+.hero-image {
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 45px rgb(0 0 0 / 0.3);
 }
 
 .eyebrow {
@@ -149,6 +165,33 @@ h1 {
   padding: 1rem 1.1rem;
 }
 
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.image-card {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  overflow: hidden;
+  background: #0d1525;
+}
+
+.image-card img {
+  width: 100%;
+  height: 170px;
+  object-fit: cover;
+  display: block;
+}
+
+.image-card p {
+  margin: 0;
+  padding: 0.8rem;
+  color: var(--muted);
+}
+
 .endpoint code {
   color: var(--ok);
   font-weight: 600;
@@ -218,4 +261,14 @@ pre {
 .footer a {
   color: var(--brand);
   text-decoration: none;
+}
+
+@media (max-width: 900px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-image {
+    max-height: 300px;
+  }
 }

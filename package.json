@@ -1,0 +1,14 @@
+{
+  "name": "sedifex-stores-docs",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Static Sedifex developer docs site",
+  "scripts": {
+    "build": "echo 'Static site ready for Vercel'",
+    "vercel-build": "npm run build",
+    "start": "npx serve . -l 3000"
+  },
+  "devDependencies": {
+    "serve": "^14.2.3"
+  }
+}
