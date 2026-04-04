@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Static Sedifex developer docs site",
   "scripts": {
-    "build": "echo 'Static site ready for Vercel'",
+    "build": "rm -rf public && mkdir -p public && cp -r *.html *.css *.txt *.xml public/ && echo 'Static site ready for Vercel (output: public/)'",
     "vercel-build": "npm run build",
     "start": "npx serve . -l 3000"
   },
