@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Reference | Sedifex Developers</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="index.html">developer.sedifex.com</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="quickstart.html">Quickstart</a>
+          <a aria-current="page" href="api-reference.html">API Reference</a>
+          <a href="webhooks.html">Webhooks</a>
+          <a href="guides.html">Guides</a>
+          <a href="troubleshooting.html">Troubleshooting</a>
+          <a class="btn" href="console.html">Console</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container section prose">
+      <h1>API Reference</h1>
+      <p>
+        <strong>Authentication:</strong>
+        <code>Authorization: Bearer &lt;integration_key&gt;</code>
+      </p>
+
+      <h2>GET /integrationProducts</h2>
+      <p>Return products for a single authorized store.</p>
+      <h3>Query Params</h3>
+      <ul>
+        <li><code>storeId</code> (required string)</li>
+      </ul>
+      <h3>Example response</h3>
+      <pre><code>{
+  "storeId": "store_123",
+  "products": [
+    {
+      "id": "prod_1",
+      "name": "Classic Tee",
+      "price": 2900,
+      "currency": "USD",
+      "updatedAt": "2026-04-04T08:15:00Z"
+    }
+  ]
+}</code></pre>
+
+      <h2>POST /developer/keys</h2>
+      <p>Create a new integration key scoped to a specific store.</p>
+
+      <h2>POST /developer/keys/{keyId}/revoke</h2>
+      <p>Immediately revoke an integration key.</p>
+
+      <h2>POST /developer/webhooks</h2>
+      <p>Register a webhook endpoint URL and endpoint secret.</p>
+
+      <h2>POST /developer/webhooks/{endpointId}/test</h2>
+      <p>Send a signed test event to verify endpoint readiness.</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Troubleshooting | Sedifex Developers</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="index.html">developer.sedifex.com</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="quickstart.html">Quickstart</a>
+          <a href="api-reference.html">API Reference</a>
+          <a href="webhooks.html">Webhooks</a>
+          <a href="guides.html">Guides</a>
+          <a aria-current="page" href="troubleshooting.html">Troubleshooting</a>
+          <a class="btn" href="console.html">Console</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container section prose">
+      <h1>Troubleshooting</h1>
+
+      <h2>401 / 403 errors</h2>
+      <ul>
+        <li>Ensure header is exactly <code>Authorization: Bearer &lt;integration_key&gt;</code>.</li>
+        <li>Confirm key is active and not revoked.</li>
+        <li>Verify user role has access to the target store.</li>
+      </ul>
+
+      <h2>Invalid storeId</h2>
+      <p>Use a store ID from your assigned workspace and validate it in the console.</p>
+
+      <h2>Signature mismatch</h2>
+      <p>
+        Validate against raw body bytes and your current endpoint secret. Watch for accidental
+        whitespace or encoding changes before digest calculation.
+      </p>
+
+      <h2>Retries and failed delivery</h2>
+      <p>
+        Sedifex retries failed webhook deliveries with exponential backoff. Review delivery logs,
+        response codes, and endpoint latency to isolate failures.
+      </p>
+    </main>
+  </body>
+</html>

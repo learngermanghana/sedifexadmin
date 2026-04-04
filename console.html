@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Console | Sedifex Developers</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="index.html">developer.sedifex.com</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="quickstart.html">Quickstart</a>
+          <a href="api-reference.html">API Reference</a>
+          <a href="webhooks.html">Webhooks</a>
+          <a href="guides.html">Guides</a>
+          <a href="troubleshooting.html">Troubleshooting</a>
+          <a aria-current="page" class="btn" href="console.html">Console</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container section prose">
+      <h1>Authenticated Console (Sedifex Login Required)</h1>
+      <p>
+        This is the product-facing blueprint for the authenticated developer console following
+        an API keys first, webhooks second rollout.
+      </p>
+
+      <div class="grid two">
+        <article class="card">
+          <h2>Overview</h2>
+          <ul>
+            <li>Active integration keys</li>
+            <li>Webhook endpoint health status</li>
+            <li>Recent integration errors</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>API Keys</h2>
+          <ul>
+            <li>Create key (secret revealed one time)</li>
+            <li>Revoke key immediately</li>
+            <li>Rotate key safely</li>
+            <li>Track <em>last used</em> timestamp</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>Webhooks</h2>
+          <ul>
+            <li>Add endpoint URL</li>
+            <li>Generate/regenerate endpoint secret</li>
+            <li>Test delivery with signed sample event</li>
+            <li>Inspect retries + response code history</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>Audit Logs</h2>
+          <ul>
+            <li>Key create/revoke/rotate records</li>
+            <li>Webhook secret rotation records</li>
+          </ul>
+        </article>
+      </div>
+
+      <article class="card section-tight">
+        <h2>Team &amp; Access</h2>
+        <ul>
+          <li>Invite developer collaborators</li>
+          <li>Manage role permissions by workspace/store</li>
+        </ul>
+      </article>
+    </main>
+  </body>
+</html>

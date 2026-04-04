@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Webhooks | Sedifex Developers</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="index.html">developer.sedifex.com</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="quickstart.html">Quickstart</a>
+          <a href="api-reference.html">API Reference</a>
+          <a aria-current="page" href="webhooks.html">Webhooks</a>
+          <a href="guides.html">Guides</a>
+          <a href="troubleshooting.html">Troubleshooting</a>
+          <a class="btn" href="console.html">Console</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container section prose">
+      <h1>Webhooks</h1>
+      <p>Configure endpoint delivery to receive near real-time events from Sedifex.</p>
+
+      <h2>Event types</h2>
+      <ul>
+        <li><code>product.updated</code></li>
+        <li><code>product.deleted</code></li>
+        <li><code>integration.key.revoked</code></li>
+        <li><code>webhook.delivery.failed</code></li>
+      </ul>
+
+      <h2>Signature headers</h2>
+      <ul>
+        <li><code>X-Sedifex-Signature</code> (sha256 HMAC digest)</li>
+        <li><code>X-Sedifex-Event</code> (event name)</li>
+        <li><code>X-Sedifex-Delivery-Id</code> (unique delivery id)</li>
+      </ul>
+
+      <h2>Node.js verification example</h2>
+      <pre><code>import crypto from "crypto";
+
+function verifySignature(rawBody, signatureHeader, endpointSecret) {
+  const digest = crypto
+    .createHmac("sha256", endpointSecret)
+    .update(rawBody)
+    .digest("hex");
+
+  const expected = `sha256=${digest}`;
+  return crypto.timingSafeEqual(
+    Buffer.from(expected),
+    Buffer.from(signatureHeader)
+  );
+}</code></pre>
+
+      <p>
+        Important: use the <strong>raw request body</strong> for HMAC verification. Parsing and re-stringifying
+        JSON before verification can cause signature mismatches.
+      </p>
+    </main>
+  </body>
+</html>

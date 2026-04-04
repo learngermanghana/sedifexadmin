@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sedifex Developer Platform</title>
+    <meta
+      name="description"
+      content="Official Sedifex developer docs for integrations, API keys, webhooks, and onboarding."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="index.html">developer.sedifex.com</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="quickstart.html">Quickstart</a>
+          <a href="api-reference.html">API Reference</a>
+          <a href="webhooks.html">Webhooks</a>
+          <a href="guides.html">Guides</a>
+          <a href="troubleshooting.html">Troubleshooting</a>
+          <a class="btn" href="console.html">Console</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container">
+          <p class="eyebrow">Sedifex Developer Platform</p>
+          <h1>Ship your Sedifex integration in 5 minutes.</h1>
+          <p class="lead">
+            Build storefront, CMS, and partner integrations with store-scoped API keys, signed
+            webhooks, and a developer console designed for fast onboarding.
+          </p>
+          <div class="actions">
+            <a class="btn" href="quickstart.html">Start in 5 minutes</a>
+            <a class="btn secondary" href="api-reference.html">Explore API Reference</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="container section">
+        <h2>Information Architecture (v1)</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>Public (No Login)</h3>
+            <ul>
+              <li>Home</li>
+              <li>Quickstart</li>
+              <li>API Reference</li>
+              <li>Webhooks</li>
+              <li>Guides</li>
+              <li>Troubleshooting</li>
+            </ul>
+          </article>
+
+          <article class="card">
+            <h3>Authenticated Console</h3>
+            <ul>
+              <li>Overview: active keys, webhook status, recent errors</li>
+              <li>API Keys: create, revoke, rotate, last-used metadata</li>
+              <li>Webhooks: endpoint setup, secret management, test delivery</li>
+              <li>Audit Logs: key and webhook lifecycle actions</li>
+              <li>Team &amp; Access: invite + role management by workspace/store</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="container section">
+        <h2>First 5 Endpoints to Launch</h2>
+        <div class="grid two">
+          <article class="card endpoint">
+            <code>GET /integrationProducts?storeId=&lt;storeId&gt;</code>
+            <p>Read products for authorized partner integrations.</p>
+          </article>
+          <article class="card endpoint">
+            <code>POST /developer/keys</code>
+            <p>Create a store-scoped integration key (secret shown once).</p>
+          </article>
+          <article class="card endpoint">
+            <code>POST /developer/keys/{keyId}/revoke</code>
+            <p>Immediately invalidate a compromised or unused key.</p>
+          </article>
+          <article class="card endpoint">
+            <code>POST /developer/webhooks</code>
+            <p>Register endpoint URL and per-endpoint signing secret.</p>
+          </article>
+          <article class="card endpoint">
+            <code>POST /developer/webhooks/{endpointId}/test</code>
+            <p>Send signed test event to validate setup before go-live.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="container section">
+        <h2>RBAC Matrix (Recommended)</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Role</th>
+                <th>Read Docs</th>
+                <th>Read Products API</th>
+                <th>Manage API Keys</th>
+                <th>Manage Webhooks</th>
+                <th>View Audit Logs</th>
+                <th>Manage Team</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Public</td>
+                <td>✅</td>
+                <td>❌</td>
+                <td>❌</td>
+                <td>❌</td>
+                <td>❌</td>
+                <td>❌</td>
+              </tr>
+              <tr>
+                <td>Developer (invited)</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅ (assigned store)</td>
+                <td>✅ (assigned store)</td>
+                <td>✅</td>
+                <td>❌</td>
+              </tr>
+              <tr>
+                <td>Manager/Admin</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅ (except ownership transfer)</td>
+              </tr>
+              <tr>
+                <td>Owner</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅</td>
+                <td>✅</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="container section">
+        <h2>Onboarding Flow (Exact Login Path)</h2>
+        <ol class="flow-list">
+          <li>Developer lands on public docs.</li>
+          <li>Clicks <strong>Create Integration</strong> and is redirected to Sedifex Auth.</li>
+          <li>If user has no account, complete self-signup or invite-based signup.</li>
+          <li>After login, backend validates <code>teamMembers</code> + <code>storeId</code>.</li>
+          <li>If authorized, show console for the correct workspace/store context.</li>
+          <li>Generate key and reveal secret exactly once.</li>
+          <li>Use quickstart sample to connect the external website.</li>
+        </ol>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>Sedifex Developer Docs v1</span>
+        <a href="quickstart.html">Get started</a>
+      </div>
+    </footer>
+  </body>
+</html>

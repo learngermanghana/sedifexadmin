@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Guides | Sedifex Developers</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="index.html">developer.sedifex.com</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="quickstart.html">Quickstart</a>
+          <a href="api-reference.html">API Reference</a>
+          <a href="webhooks.html">Webhooks</a>
+          <a aria-current="page" href="guides.html">Guides</a>
+          <a href="troubleshooting.html">Troubleshooting</a>
+          <a class="btn" href="console.html">Console</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container section prose">
+      <h1>Guides</h1>
+
+      <h2>WordPress setup guide</h2>
+      <ol>
+        <li>Create a custom plugin to keep logic versioned and testable.</li>
+        <li>Add a server-side function that requests <code>/integrationProducts</code>.</li>
+        <li>Store API key securely in WordPress environment config.</li>
+        <li>Cache responses with WP Transients for 5–15 minutes.</li>
+        <li>Render products through a shortcode or Gutenberg block.</li>
+      </ol>
+
+      <h2>Common integration patterns</h2>
+      <ul>
+        <li><strong>Server proxy:</strong> keep keys off client browsers.</li>
+        <li><strong>Nightly sync + webhooks:</strong> full sync then event deltas.</li>
+        <li><strong>Store isolation:</strong> enforce store-level scoping everywhere.</li>
+      </ul>
+    </main>
+  </body>
+</html>
