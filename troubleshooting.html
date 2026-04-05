@@ -16,7 +16,6 @@
           <a href="webhooks.html">Webhooks</a>
           <a href="guides.html">Guides</a>
           <a aria-current="page" href="troubleshooting.html">Troubleshooting</a>
-          <a class="btn" href="console.html">Console</a>
         </nav>
       </div>
     </header>
@@ -32,7 +31,7 @@
       </ul>
 
       <h2>Invalid storeId</h2>
-      <p>Use a store ID from your assigned workspace and validate it in the console.</p>
+      <p>Use a store ID from your assigned workspace and validate it in Account → Integrations.</p>
 
       <h2>Signature mismatch</h2>
       <p>
@@ -45,6 +44,15 @@
         Sedifex retries failed webhook deliveries with exponential backoff. Review delivery logs,
         response codes, and endpoint latency to isolate failures.
       </p>
+
+      <h2>Operational visibility and rollback</h2>
+      <ul>
+        <li>Check sync status logs for started/finished times, duration, and rows changed.</li>
+        <li>Trigger incident review if the same store has 3 failed syncs within 30 minutes.</li>
+        <li>Use rollback to last successful snapshot if current sync quality degrades.</li>
+        <li>Temporarily freeze live catalog updates while endpoint or data issues are resolved.</li>
+      </ul>
+
     </main>
   </body>
 </html>
