@@ -16,7 +16,6 @@
           <a aria-current="page" href="webhooks.html">Webhooks</a>
           <a href="guides.html">Guides</a>
           <a href="troubleshooting.html">Troubleshooting</a>
-          <a class="btn" href="console.html">Console</a>
         </nav>
       </div>
     </header>
@@ -106,6 +105,16 @@ function verify_sedifex_signature(string $rawBody, string $signatureHeader, stri
         <li>Log <code>X-Sedifex-Event-Id</code> to ensure idempotent processing.</li>
         <li>Respond with 2xx only after durable processing (or accepted queueing).</li>
       </ul>
+
+      <h2>Endpoint operations checklist</h2>
+      <ul>
+        <li>Add endpoint URL and keep one signing secret per endpoint.</li>
+        <li>Use signed test deliveries before enabling production traffic.</li>
+        <li>Regenerate endpoint secrets during credential rotation windows.</li>
+        <li>Review delivery history by response code, retry attempts, and terminal failure reason.</li>
+        <li>Monitor endpoint health and alert when 3 consecutive deliveries fail within 30 minutes.</li>
+      </ul>
+
     </main>
   </body>
 </html>

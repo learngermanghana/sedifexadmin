@@ -16,7 +16,6 @@
           <a href="webhooks.html">Webhooks</a>
           <a href="guides.html">Guides</a>
           <a href="troubleshooting.html">Troubleshooting</a>
-          <a class="btn" href="console.html">Console</a>
         </nav>
       </div>
     </header>
@@ -29,12 +28,12 @@
       <ul>
         <li>Access to a Sedifex workspace + store</li>
         <li>A developer role or above in that store</li>
-        <li>An integration key generated from the console</li>
+        <li>An integration key generated from Sedifex Account → Integrations</li>
       </ul>
 
       <h2>2) Copy/paste JavaScript example</h2>
       <pre><code>const storeId = "store_123";
-const integrationKey = "sk_live_..."; // Revealed once in console
+const integrationKey = "sk_live_..."; // Revealed once at creation
 
 const response = await fetch(
   `https://api.sedifex.com/integrationProducts?storeId=${storeId}`,
@@ -57,8 +56,18 @@ console.log(payload.products);</code></pre>
       <ul>
         <li>Response returns 200 with a <code>products</code> array.</li>
         <li><code>storeId</code> in response matches your requested store.</li>
-        <li>Integration key appears with updated <em>last used</em> in console.</li>
+        <li>Integration key metadata shows updated <em>last used</em> after a successful call.</li>
       </ul>
+
+      <h2>4) Key lifecycle and access checklist</h2>
+      <ul>
+        <li>Create store-scoped keys and copy the secret immediately (revealed once).</li>
+        <li>Revoke compromised keys immediately and use rotate flow for planned changes.</li>
+        <li>Track <em>last used</em>, key status, and key owner before production rollout.</li>
+        <li>Review audit log records for key create/revoke/rotate events.</li>
+        <li>Confirm collaborators have the correct store/workspace role assignments.</li>
+      </ul>
+
     </main>
   </body>
 </html>
