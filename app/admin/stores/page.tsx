@@ -85,18 +85,19 @@ function storeLocation(store: MergedStore) {
   return [address, city, country].filter(Boolean).join(', ') || 'Not set';
 }
 
-function shoppingConnected(store: MergedStore) {
-  return nestedValue(store.settings, ['googleShopping', 'connection', 'connected']) === true;
+function workspaceActive(store: MergedStore) {
+  const status = [
+    fieldText(store.merged, ['workspaceStatus', 'accountStatus', 'status'], ''),
+    nestedText(store.merged, [['subscription', 'status'], ['billing', 'status']], ''),
+  ].join(' ').toLowerCase();
+
+  if (/suspended|disabled|inactive|cancelled|canceled|closed/.test(status)) return false;
+  if (/active|paid|trial|live|enabled/.test(status)) return true;
+  return Boolean(store.profile || store.settings);
 }
 
-function autoSyncEnabled(store: MergedStore) {
-  return nestedValue(store.settings, ['googleShopping', 'catalogSync', 'autoSyncEnabled']) === true;
-}
-
-function buyStatus(store: MergedStore) {
-  if (store.merged.eligibleForBuy === true && store.merged.buyOptOut !== true) return 'Buy ready';
-  if (store.merged.buyOptOut === true) return 'Opted out';
-  return 'Not ready';
+function hasWebsite(store: MergedStore) {
+  return Boolean(fieldText(store.merged, ['websiteUrl', 'websiteLink', 'storeWebsiteUrl', 'publicUrl'], ''));
 }
 
 function numberField(store: StoreRecord | null | undefined, fields: string[]) {
@@ -184,16 +185,16 @@ export default async function StoresPage({ searchParams }: { searchParams: Searc
   const result = await loadStores();
   const allStores = result.stores;
   const stores = query ? allStores.filter((store) => searchableText(store).includes(query)) : allStores;
-  const connectedCount = allStores.filter(shoppingConnected).length;
-  const syncCount = allStores.filter(autoSyncEnabled).length;
-  const buyReadyCount = allStores.filter((store) => buyStatus(store) === 'Buy ready').length;
+  const activeWorkspaceCount = allStores.filter(workspaceActive).length;
+  const websiteCount = allStores.filter(hasWebsite).length;
+  const contactCount = allStores.filter((store) => storeContact(store) !== 'Not set').length;
   const firstStore = stores[0] || allStores[0] || null;
 
   const stats = [
-    { label: 'Total stores', value: result.ok ? String(allStores.length) : 'Setup', delta: result.ok ? 'Merged stores + settings' : 'Database not ready' },
-    { label: 'Buy ready', value: result.ok ? String(buyReadyCount) : '—', delta: 'Eligible for marketplace' },
-    { label: 'Shopping connected', value: result.ok ? String(connectedCount) : '—', delta: 'Google Shopping enabled' },
-    { label: 'Auto sync enabled', value: result.ok ? String(syncCount) : '—', delta: 'Catalog sync active' },
+    { label: 'Client workspaces', value: result.ok ? String(allStores.length) : 'Setup', delta: result.ok ? 'Merged stores + settings' : 'Database not ready' },
+    { label: 'Active workspaces', value: result.ok ? String(activeWorkspaceCount) : '—', delta: 'Available Sedifex clients' },
+    { label: 'With website', value: result.ok ? String(websiteCount) : '—', delta: 'Connected client website detected' },
+    { label: 'With contact', value: result.ok ? String(contactCount) : '—', delta: 'Client contact email detected' },
   ];
 
   return (
@@ -216,7 +217,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Searc
 
       <section className="grid gap-6 xl:grid-cols-[1.75fr_0.85fr]">
         <SectionCard
-          title="Store directory"
+          title="Client workspace directory"
           action={<Link href="/api/admin/firestore/store-settings?limit=100" className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-500">Raw data <ArrowUpRight className="h-3.5 w-3.5" /></Link>}
         >
           <form className="mb-4 flex flex-col gap-3 sm:flex-row" action="/admin/stores">
@@ -244,7 +245,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Searc
                 const editHref = `/admin/stores/${encodeURIComponent(store.id)}/edit`;
                 const products = countFromMap(store.merged, 'products') || numberField(store.merged, ['productCount']);
                 const services = countFromMap(store.merged, 'services');
-                const outOfSync = numberField(store.merged, ['publicCatalogOutOfSyncCount']);
+                const website = hasWebsite(store);
 
                 return (
                   <div key={store.id} className="grid gap-3 px-4 py-4 text-sm transition hover:bg-indigo-50/60 xl:grid-cols-[1.35fr_0.9fr_0.9fr_0.85fr_0.75fr_auto] xl:items-center">
@@ -262,11 +263,11 @@ export default async function StoresPage({ searchParams }: { searchParams: Searc
                     <p className="truncate text-slate-600">{storeLocation(store)}</p>
                     <div className="text-xs text-slate-600">
                       <p><strong>{products}</strong> products · <strong>{services}</strong> services</p>
-                      <p className={outOfSync > 0 ? 'text-amber-700' : 'text-emerald-700'}>{outOfSync} out of sync</p>
+                      <p className={website ? 'text-emerald-700' : 'text-slate-500'}>{website ? 'Website connected' : 'No website saved'}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <StatusBadge tone={buyStatus(store) === 'Buy ready' ? 'green' : 'slate'}>{buyStatus(store)}</StatusBadge>
-                      <StatusBadge tone={shoppingConnected(store) ? 'green' : 'slate'}>{shoppingConnected(store) ? 'Google on' : 'Google off'}</StatusBadge>
+                      <StatusBadge tone={workspaceActive(store) ? 'green' : 'yellow'}>{workspaceActive(store) ? 'Active workspace' : 'Review workspace'}</StatusBadge>
+                      <StatusBadge tone={website ? 'blue' : 'slate'}>{website ? 'Website linked' : 'No website'}</StatusBadge>
                     </div>
                     <div className="flex flex-wrap gap-2 xl:justify-end">
                       <Link href={detailHref} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-white">Open <ArrowUpRight className="h-3.5 w-3.5" /></Link>
@@ -306,7 +307,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Searc
           <SectionCard title="What changed">
             <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
               <div className="flex items-center gap-2 font-semibold text-slate-950"><Database className="h-4 w-4 text-indigo-600" />Merged profile data</div>
-              <p className="mt-2 leading-6">This page now merges /stores and /storeSettings by store ID, so you can search by store name instead of depending on the ID.</p>
+              <p className="mt-2 leading-6">This page merges /stores and /storeSettings by workspace ID so client status, contact details, website connection, and catalog counts are visible in one place.</p>
             </div>
           </SectionCard>
         </div>

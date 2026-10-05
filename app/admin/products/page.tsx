@@ -158,8 +158,8 @@ function hasCategory(item: CatalogItem) {
   return Boolean(getCategory(item));
 }
 
-function marketVisible(item: CatalogItem) {
-  if (item.marketplaceVisible === true || item.showOnMarket === true || item.isPublished === true || item.active === true) return true;
+function websiteVisible(item: CatalogItem) {
+  if (item.isWebsiteVisible === true || item.websiteVisible === true || item.isPublished === true || item.active === true || item.marketplaceVisible === true || item.showOnMarket === true) return true;
   const status = fieldText(item, ['status', 'visibility', 'state'], '').toLowerCase();
   return ['active', 'published', 'visible', 'live'].includes(status);
 }
@@ -171,7 +171,7 @@ function catalogIssues(item: CatalogItem) {
     !hasImage(item) ? 'Missing image' : null,
     !hasPrice(item) ? 'Missing price' : null,
     !hasCategory(item) ? 'Missing category' : null,
-    !marketVisible(item) ? 'Hidden from market' : null,
+    !websiteVisible(item) ? 'Not published to website' : null,
   ].filter(Boolean) as string[];
 }
 
@@ -259,18 +259,21 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
   const imageUrl = cleanText(formData.get('imageUrl'));
   const description = cleanText(formData.get('description'));
   const price = parseMoney(formData.get('price'));
-  const visible = formData.get('marketplaceVisible') === 'on';
+  const visible = formData.get('websiteVisible') === 'on';
 
   const update: Record<string, unknown> = {
     itemType,
     type: itemType,
-    marketplaceVisible: visible,
-    showOnMarket: visible,
+    isWebsiteVisible: visible,
+    websiteVisible: visible,
     isPublished: visible,
     active: visible,
-    status: visible ? 'active' : 'draft',
+    status: visible ? 'published' : 'draft',
+    marketplaceVisible: false,
+    showOnMarket: false,
+    isMarketplaceVisible: false,
     adminUpdatedAt: now,
-    adminUpdatedFrom: 'sedifexadmin',
+    adminUpdatedFrom: 'sedifexadmin-client-catalog-review',
   };
 
   if (name) {
@@ -335,13 +338,13 @@ export default async function ProductsPage() {
   const missingImage = items.filter((item) => !hasImage(item)).length;
   const missingPrice = items.filter((item) => !hasPrice(item)).length;
   const missingCategory = items.filter((item) => !hasCategory(item)).length;
-  const hiddenItems = items.filter((item) => !marketVisible(item)).length;
+  const hiddenItems = items.filter((item) => !websiteVisible(item)).length;
   const readyItems = items.length - itemsWithIssues.length;
 
   const stats = [
     { label: 'Catalog items', value: catalog.connected ? String(items.length) : 'Setup', delta: catalog.connected ? 'Products, services, courses' : 'Check Firebase envs' },
     { label: 'Need review', value: catalog.connected ? String(itemsWithIssues.length) : '—', delta: 'Items with one or more issues' },
-    { label: 'Market ready', value: catalog.connected ? String(readyItems) : '—', delta: 'No detected catalog errors' },
+    { label: 'Website ready', value: catalog.connected ? String(readyItems) : '—', delta: 'Ready for client website use' },
     { label: 'Missing store ID', value: catalog.connected ? String(missingStore) : '—', delta: 'Cannot reliably show under store' },
   ];
 
@@ -349,7 +352,7 @@ export default async function ProductsPage() {
     { title: 'Missing images', value: missingImage, description: 'Items without image, imageUrl, thumbnail, gallery, or photos.', icon: ImageIcon, tone: missingImage > 0 ? ('yellow' as const) : ('green' as const) },
     { title: 'Missing prices', value: missingPrice, description: 'Items that cannot be sold because price is missing or zero.', icon: WalletCards, tone: missingPrice > 0 ? ('red' as const) : ('green' as const) },
     { title: 'Missing categories', value: missingCategory, description: 'Items that may fail grouping, filtering, and homepage sections.', icon: Tag, tone: missingCategory > 0 ? ('yellow' as const) : ('green' as const) },
-    { title: 'Hidden from market', value: hiddenItems, description: 'Items not marked visible, active, live, or published.', icon: Eye, tone: hiddenItems > 0 ? ('yellow' as const) : ('green' as const) },
+    { title: 'Not on website', value: hiddenItems, description: 'Items not yet marked published or visible for the client website.', icon: Eye, tone: hiddenItems > 0 ? ('yellow' as const) : ('green' as const) },
   ];
 
   return (
@@ -361,10 +364,10 @@ export default async function ProductsPage() {
               <PackageSearch className="h-4 w-4" /> Catalog Review
             </div>
             <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl">
-              Fix product, service, and course errors before they reach Sedifex Market.
+              Review product, service, and course data before it appears on client Sedifex websites.
             </h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-              Review missing store IDs, images, prices, categories, item types, and marketplace visibility from one admin page.
+              Review missing client workspace IDs, images, prices, categories, item types, and website publishing state from one admin page.
             </p>
           </div>
 
@@ -485,8 +488,8 @@ export default async function ProductsPage() {
 
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input type="checkbox" name="marketplaceVisible" defaultChecked={marketVisible(item)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
-                        Show on Sedifex Market
+                        <input type="checkbox" name="websiteVisible" defaultChecked={websiteVisible(item)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+                        Publish on client Sedifex website
                       </label>
                       <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-indigo-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-400">
                         <Save className="h-4 w-4" /> Save catalog fix
@@ -504,7 +507,7 @@ export default async function ProductsPage() {
             <div className="space-y-3 text-sm leading-6 text-slate-600">
               <div className="rounded-2xl bg-slate-50 p-4">
                 <div className="mb-2 flex items-center gap-2 font-semibold text-slate-950"><Store className="h-4 w-4 text-indigo-600" /> Link to store</div>
-                Every market item should have a valid storeId so Sedifex Market can display it under the correct business.
+                Every item should have a valid storeId so Sedifex can serve it to the correct client website.
               </div>
               <div className="rounded-2xl bg-slate-50 p-4">
                 <div className="mb-2 flex items-center gap-2 font-semibold text-slate-950"><WalletCards className="h-4 w-4 text-indigo-600" /> Add price</div>
@@ -515,8 +518,8 @@ export default async function ProductsPage() {
                 Categories help the homepage, search, and tabs separate products, services, and courses.
               </div>
               <div className="rounded-2xl bg-slate-50 p-4">
-                <div className="mb-2 flex items-center gap-2 font-semibold text-slate-950"><Eye className="h-4 w-4 text-indigo-600" /> Show on market</div>
-                Turn this on when an item is ready for buyers to see on Sedifex Market.
+                <div className="mb-2 flex items-center gap-2 font-semibold text-slate-950"><Eye className="h-4 w-4 text-indigo-600" /> Publish to client website</div>
+                Turn this on when the item is ready to appear on the client’s connected Sedifex website.
               </div>
             </div>
           </SectionCard>
