@@ -129,11 +129,45 @@ function bookingLabel(row: Doc) {
   return status.replace(/_/g, ' ');
 }
 
+function notificationSummary(rows: Doc[], bookingReference: string) {
+  const matching = rows
+    .filter((row) => text(row.reference) === bookingReference)
+    .sort((a, b) => createdAt(b) - createdAt(a));
+
+  if (!matching.length) return { label: 'No email record', tone: 'slate' as const, detail: 'No matching notification outbox record.' };
+
+  const customer = matching.find((row) => text(row.recipientType).toLowerCase() === 'customer');
+  const store = matching.find((row) => text(row.recipientType).toLowerCase() === 'store');
+  const latest = customer || store || matching[0];
+  const status = text(latest.status, 'queued').toLowerCase();
+  const reason = text(latest.deliveryReason ?? latest.errorMessage ?? latest.deliveryStatus, '');
+
+  const statusLabel = (value: string) => {
+    if (value === 'delivery_accepted') return 'Accepted by sender';
+    if (value === 'delivery_failed' || value === 'webhook_error') return 'Delivery failed';
+    if (value === 'queued_no_live_sender') return 'No live sender';
+    if (value === 'queued') return 'Queued';
+    return value.replace(/_/g, ' ');
+  };
+
+  const parts = [
+    customer ? `Customer: ${statusLabel(text(customer.status, 'queued').toLowerCase())}` : '',
+    store ? `Store: ${statusLabel(text(store.status, 'queued').toLowerCase())}` : '',
+  ].filter(Boolean);
+
+  return {
+    label: statusLabel(status),
+    tone: status === 'delivery_accepted' ? ('green' as const) : status === 'delivery_failed' || status === 'webhook_error' ? ('red' as const) : status === 'queued_no_live_sender' ? ('yellow' as const) : ('blue' as const),
+    detail: [parts.join(' · '), reason].filter(Boolean).join(' · '),
+  };
+}
+
 async function loadData() {
-  if (!getFirebaseEnvStatus().ready) return { bookings: [] as Doc[], stores: new Map<string, string>(), error: 'Firebase environment variables are not ready.' };
+  if (!getFirebaseEnvStatus().ready) return { bookings: [] as Doc[], notifications: [] as Doc[], stores: new Map<string, string>(), error: 'Firebase environment variables are not ready.' };
   try {
-    const [bookingsResult, storesResult, settingsResult] = await Promise.all([
+    const [bookingsResult, notificationsResult, storesResult, settingsResult] = await Promise.all([
       listFirestoreDocuments('integrationBookings', 1000),
+      listFirestoreDocuments('notification_outbox', 1000).catch(() => ({ documents: [] as Doc[] })),
       listFirestoreDocuments('stores', 500).catch(() => ({ documents: [] as Doc[] })),
       listFirestoreDocuments('storeSettings', 500).catch(() => ({ documents: [] as Doc[] })),
     ]);
@@ -143,9 +177,9 @@ async function loadData() {
       if (!id) return;
       stores.set(id, text(store.displayName ?? store.storeName ?? store.businessName ?? store.name, id));
     });
-    return { bookings: bookingsResult.documents as Doc[], stores, error: null as string | null };
+    return { bookings: bookingsResult.documents as Doc[], notifications: notificationsResult.documents as Doc[], stores, error: null as string | null };
   } catch (error) {
-    return { bookings: [] as Doc[], stores: new Map<string, string>(), error: error instanceof Error ? error.message : 'Unable to load bookings.' };
+    return { bookings: [] as Doc[], notifications: [] as Doc[], stores: new Map<string, string>(), error: error instanceof Error ? error.message : 'Unable to load bookings.' };
   }
 }
 
@@ -231,12 +265,14 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
                 <th className="px-4 py-3">Schedule</th>
                 <th className="px-4 py-3 text-right">Amount</th>
                 <th className="px-4 py-3">Payment</th>
+                <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Booking state</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {filtered.length ? filtered.slice(0, 200).map((row) => {
                 const owner = storeId(row);
+                const emailState = notificationSummary(data.notifications, reference(row));
                 return (
                   <tr key={row.id || reference(row)}>
                     <td className="px-4 py-3 text-xs text-slate-500">{formatDate(createdAt(row))}</td>
@@ -255,11 +291,15 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
                     <td className="px-4 py-3 text-slate-600">{schedule(row)}</td>
                     <td className="px-4 py-3 text-right font-semibold">GHS {amount(row).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className="px-4 py-3"><StatusBadge tone={paymentTone(row)}>{paymentLabel(row)}</StatusBadge></td>
+                    <td className="px-4 py-3">
+                      <StatusBadge tone={emailState.tone}>{emailState.label}</StatusBadge>
+                      <p className="mt-1 max-w-56 text-xs text-slate-500">{emailState.detail}</p>
+                    </td>
                     <td className="px-4 py-3"><StatusBadge tone={bookingStatus(row) === 'confirmed' ? 'green' : bookingStatus(row) === 'pending_approval' ? 'yellow' : 'slate'}>{bookingLabel(row)}</StatusBadge></td>
                   </tr>
                 );
               }) : (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">No bookings match this view.</td></tr>
+                <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">No bookings match this view.</td></tr>
               )}
             </tbody>
           </table>
