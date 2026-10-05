@@ -6,17 +6,13 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   BarChart3,
+  CalendarDays,
   ChevronRight,
   CircleAlert,
-  Hammer,
   House,
-  KeyRound,
   Mail,
-  Megaphone,
-  MessageCircle,
   Package,
-  PackageCheck,
-  Settings,
+  PlusCircle,
   ShoppingBag,
   Store,
   Users,
@@ -30,15 +26,14 @@ type Item = { href: string; label: string; icon: ComponentType<{ className?: str
 const groups: { label: string; items: Item[] }[] = [
   { label: 'Overview', items: [{ href: '/admin', label: 'Command Center', icon: House }] },
   {
-    label: 'Commerce',
+    label: 'Clients',
     items: [
-      { href: '/admin/stores', label: 'Stores', icon: Store },
-      { href: '/admin/store-activity', label: 'Store Activity', icon: Activity },
+      { href: '/admin/stores', label: 'Client Workspaces', icon: Store },
+      { href: '/admin/store-activity', label: 'Client Activity', icon: Activity },
+      { href: '/admin/client-items', label: 'Add Client Item', icon: PlusCircle },
+      { href: '/admin/bookings', label: 'Bookings', icon: CalendarDays },
       { href: '/admin/customers', label: 'Customers', icon: Users },
       { href: '/admin/products', label: 'Catalog Review', icon: Package },
-      { href: '/admin/poster-generator', label: 'Poster Generator', icon: Megaphone },
-      { href: '/admin/google-sync', label: 'Google Sync', icon: PackageCheck },
-      { href: '/admin/catalog-sync', label: 'Catalog Sync', icon: Hammer },
       { href: '/admin/orders', label: 'Orders', icon: ShoppingBag },
       { href: '/admin/settlements', label: 'Settlements', icon: WalletCards },
       { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
@@ -48,14 +43,10 @@ const groups: { label: string; items: Item[] }[] = [
     label: 'Operations',
     items: [
       { href: '/admin/marketing', label: 'Marketing Center', icon: Mail },
-      { href: '/admin/adverts', label: 'Advert Manager', icon: Megaphone },
       { href: '/admin/checkout-health', label: 'Checkout Health', icon: CircleAlert },
       { href: '/admin/deliveries', label: 'Webhook Deliveries', icon: Webhook },
-      { href: '/admin/store-access', label: 'Store Access', icon: KeyRound },
-      { href: '/admin/store-settings/manage', label: 'Advanced Settings', icon: Settings },
     ],
   },
-  { label: 'Support', items: [{ href: '/admin/live-chat', label: 'Live Chat', icon: MessageCircle }] },
 ];
 
 export default function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boolean; onMobileClose: () => void }) {
