@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { resolveExistingFirebaseStorageBucket } from '../../../../../lib/firebase-storage-resolver';
 
 export const runtime = 'nodejs';
@@ -15,13 +16,6 @@ type UploadBody = {
   base64?: unknown;
 };
 
-function cookieValue(req: Request, name: string) {
-  return req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=')[1];
-}
-
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin' || role === 'support';
-}
 
 function cleanText(value: unknown, fallback = '') {
   return typeof value === 'string' ? value.trim() || fallback : fallback;
@@ -87,8 +81,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const role = cookieValue(req, 'sedifex_admin_role');
-    if (!isAllowedRole(role)) {
+    const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
+    if (!session) {
       return json({ ok: false, error: 'Only super_admin, ops_admin, or support can upload marketing images.', currentRole: role || null }, 403);
     }
 
