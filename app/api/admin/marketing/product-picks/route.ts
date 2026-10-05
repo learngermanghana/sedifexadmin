@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { adminFirestore } from '../../../../../lib/firebase-admin';
 
 export const runtime = 'nodejs';
@@ -24,13 +25,6 @@ type ProductPick = {
 const LISTING_COLLECTIONS = ['publicListings', 'publicProducts'] as const;
 const MARKET_BASE_URL = (process.env.SEDIFEX_MARKET_URL || process.env.NEXT_PUBLIC_SEDIFEX_MARKET_URL || 'https://www.sedifexmarket.com').replace(/\/+$/, '');
 
-function cookieValue(req: Request, name: string) {
-  return req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=')[1];
-}
-
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin' || role === 'support';
-}
 
 function text(value: unknown, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback;
@@ -216,8 +210,8 @@ function scoreProduct(record: RawRecord, imageUrl: string, price: number) {
 }
 
 export async function GET(req: Request) {
-  const role = cookieValue(req, 'sedifex_admin_role');
-  if (!isAllowedRole(role)) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
+  if (!session) {
     return NextResponse.json({ ok: false, error: 'Only super_admin, ops_admin, or support can generate product marketing picks.', currentRole: role || null }, { status: 403 });
   }
 
