@@ -159,9 +159,23 @@ function hasCategory(item: CatalogItem) {
 }
 
 function websiteVisible(item: CatalogItem) {
-  if (item.isWebsiteVisible === true || item.websiteVisible === true || item.isPublished === true || item.active === true || item.marketplaceVisible === true || item.showOnMarket === true) return true;
+  if (item.isWebsiteVisible === true || item.websiteVisible === true) return true;
+  if (item.isWebsiteVisible === false || item.websiteVisible === false) return false;
+
+  const legacyMarketplaceVisible =
+    item.marketplaceVisible === true ||
+    item.showOnMarket === true ||
+    item.isMarketplaceVisible === true;
+
+  // Marketplace-only visibility is not evidence that an item is published on a
+  // client website. Keep the two publication channels independent.
+  if (legacyMarketplaceVisible) return false;
+
   const status = fieldText(item, ['status', 'visibility', 'state'], '').toLowerCase();
-  return ['active', 'published', 'visible', 'live'].includes(status);
+  if (['draft', 'hidden', 'private', 'inactive'].includes(status)) return false;
+  if (item.isPublished === false || item.active === false) return false;
+
+  return item.isPublished === true || item.active === true || ['active', 'published', 'visible', 'live'].includes(status);
 }
 
 function catalogIssues(item: CatalogItem) {
@@ -269,9 +283,6 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
     isPublished: visible,
     active: visible,
     status: visible ? 'published' : 'draft',
-    marketplaceVisible: false,
-    showOnMarket: false,
-    isMarketplaceVisible: false,
     adminUpdatedAt: now,
     adminUpdatedFrom: 'sedifexadmin-client-catalog-review',
   };
