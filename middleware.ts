@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRoutePolicy } from './lib/admin-access';
+import { ADMIN_SESSION_COOKIE, verifyAdminSessionToken } from './lib/admin-session';
 
 const LOGIN_PATH = '/admin/login';
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (!pathname.startsWith('/admin') || pathname.startsWith('/admin/api')) {
     return NextResponse.next();
@@ -11,17 +12,18 @@ export function middleware(req: NextRequest) {
 
   if (pathname === LOGIN_PATH) return NextResponse.next();
 
-  const role = req.cookies.get('sedifex_admin_role')?.value;
-  const scope = req.cookies.get('sedifex_admin_scope')?.value;
+  const session = await verifyAdminSessionToken(req.cookies.get(ADMIN_SESSION_COOKIE)?.value);
 
-  if (!role || !scope) {
-    return NextResponse.redirect(new URL(LOGIN_PATH, req.url));
+  if (!session) {
+    const response = NextResponse.redirect(new URL(LOGIN_PATH, req.url));
+    response.cookies.set(ADMIN_SESSION_COOKIE, '', { path: '/', maxAge: 0 });
+    return response;
   }
 
   const policy = getRoutePolicy(pathname);
   if (!policy) return NextResponse.next();
 
-  if (!policy.roles.includes(role as never) || !policy.scopes.includes(scope as never)) {
+  if (!policy.roles.includes(session.role) || !policy.scopes.includes(session.scope)) {
     return NextResponse.redirect(new URL('/admin', req.url));
   }
 
