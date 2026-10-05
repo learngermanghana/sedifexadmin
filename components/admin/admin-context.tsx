@@ -12,28 +12,37 @@ type AdminContextValue = {
 
 const AdminContext = createContext<AdminContextValue | null>(null);
 
-function readCookie(name: string) {
-  if (typeof document === 'undefined') return '';
-  return document.cookie
-    .split('; ')
-    .find((row) => row.startsWith(`${name}=`))
-    ?.split('=')[1] ?? '';
-}
-
 export function AdminContextProvider({ children }: { children: React.ReactNode }) {
   const [scope, setScopeState] = useState<Scope>('platform');
   const [role, setRole] = useState('');
 
   useEffect(() => {
-    const cookieScope = readCookie('sedifex_admin_scope');
-    const cookieRole = readCookie('sedifex_admin_role');
-    if (cookieScope === 'store' || cookieScope === 'platform') setScopeState(cookieScope);
-    if (cookieRole) setRole(cookieRole);
+    let cancelled = false;
+
+    fetch('/api/admin/session', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Unable to load admin session.');
+        return response.json() as Promise<{ scope?: Scope; role?: string }>;
+      })
+      .then((session) => {
+        if (cancelled) return;
+        if (session.scope === 'store' || session.scope === 'platform') setScopeState(session.scope);
+        if (session.role) setRole(session.role);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRole('');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const setScope = (next: Scope) => {
+    // This is a presentation/filter choice only. Authorization always comes
+    // from the signed HttpOnly session verified on the server.
     setScopeState(next);
-    document.cookie = `sedifex_admin_scope=${next}; path=/; max-age=86400`;
   };
 
   const value = useMemo(() => ({ scope, setScope, role }), [scope, role]);

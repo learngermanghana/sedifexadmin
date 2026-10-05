@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { adminFirestore } from '../../../../../lib/firebase-admin';
 
 export const runtime = 'nodejs';
@@ -39,18 +40,10 @@ function errorPayload(error: unknown, fallback: string) {
   return { ok: false, error: message || fallback, stack };
 }
 
-function cookieValue(req: Request, name: string) {
-  return req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=')[1];
-}
-
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin';
-}
-
-function assertAdmin(req: Request, action: string) {
-  const role = cookieValue(req, 'sedifex_admin_role');
-  if (!isAllowedRole(role)) {
-    return json({ ok: false, error: `Only super_admin or ops_admin can ${action}.`, currentRole: role || null }, 403);
+async function assertAdmin(req: Request, action: string) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin'] });
+  if (!session) {
+    return json({ ok: false, error: `Only authenticated platform super_admin or ops_admin can ${action}.` }, 403);
   }
   return null;
 }
@@ -205,7 +198,7 @@ function limitFrom(value: string | number | null | undefined) {
 
 export async function GET(req: Request) {
   try {
-    const denied = assertAdmin(req, 'inspect navigation repair');
+    const denied = await assertAdmin(req, 'inspect navigation repair');
     if (denied) return denied;
 
     const url = new URL(req.url);
@@ -243,7 +236,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const denied = assertAdmin(req, 'apply navigation repair');
+    const denied = await assertAdmin(req, 'apply navigation repair');
     if (denied) return denied;
 
     const body = await req.json().catch(() => ({})) as { apply?: boolean; limit?: number; storeIds?: string[] };

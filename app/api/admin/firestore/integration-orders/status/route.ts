@@ -1,5 +1,6 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { adminFirestore } from '@/lib/firebase-admin';
 import { isPaymentConfirmed, paymentAuditPatch, isOnlineCheckoutOrder, isCashLikePayment } from '@/lib/payment-audit';
 import { sendOrderPaidEmail, sendPaymentNotConfirmedEmail } from '@/lib/payment-audit-email';
@@ -39,13 +40,6 @@ const ACTION_LABELS: Record<StatusAction, string> = {
   complete_manual: 'Manual entry completed',
 };
 
-function cookieValue(req: Request, name: string) {
-  return req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=')[1];
-}
-
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin' || role === 'support';
-}
 
 function canOverridePayment(role?: string) {
   return role === 'super_admin' || role === 'support';
@@ -285,8 +279,9 @@ function statusPatch(action: StatusAction): Record<string, unknown> {
 }
 
 export async function POST(req: Request) {
-  const role = cookieValue(req, 'sedifex_admin_role');
-  if (!isAllowedRole(role)) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
+  const role = session?.role;
+  if (!session) {
     return NextResponse.json({ ok: false, error: 'Only super_admin, ops_admin, or support can update order status.', currentRole: role || null }, { status: 403 });
   }
 

@@ -1,9 +1,9 @@
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { AlertTriangle, CheckCircle2, PackagePlus, ShieldCheck, Store } from 'lucide-react';
 import { SectionCard, StatusBadge } from '../../../components/admin/ui';
 import { adminFirestore, getFirebaseEnvStatus } from '../../../lib/firebase-admin';
+import { getAuthenticatedAdminSession } from '../../../lib/admin-session-server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -50,13 +50,11 @@ function validHttpsUrl(value: string) {
 }
 
 async function assertClientItemAccess() {
-  const cookieStore = await cookies();
-  const role = cookieStore.get('sedifex_admin_role')?.value || '';
-  const scope = cookieStore.get('sedifex_admin_scope')?.value || '';
-  if (scope !== 'platform' || !ALLOWED_ROLES.has(role)) {
-    throw new Error('Only platform super admins, operations admins, and support staff can create client items.');
+  const session = await getAuthenticatedAdminSession();
+  if (!session || session.scope !== 'platform' || !ALLOWED_ROLES.has(session.role)) {
+    throw new Error('Only authenticated platform super admins, operations admins, and support staff can create client items.');
   }
-  return role;
+  return session;
 }
 
 async function loadStores(): Promise<StoreOption[]> {
@@ -87,7 +85,7 @@ async function createClientItem(formData: FormData) {
   let message = '';
 
   try {
-    const role = await assertClientItemAccess();
+    const session = await assertClientItemAccess();
     const storeId = cleanForm(formData, 'storeId');
     const itemType = cleanForm(formData, 'itemType').toLowerCase() as ItemType;
     const name = cleanForm(formData, 'name');
@@ -147,7 +145,8 @@ async function createClientItem(formData: FormData) {
       createdAt: now,
       updatedAt: now,
       adminCreatedAt: now,
-      adminCreatedByRole: role,
+      adminCreatedByRole: session.role,
+      adminCreatedBy: session.email,
       adminCreatedFrom: 'sedifexadmin-client-items',
     };
 
@@ -169,7 +168,8 @@ async function createClientItem(formData: FormData) {
       const audit = {
         action: 'client_item_created',
         actor: 'sedifexadmin',
-        actorRole: role,
+        actorRole: session.role,
+        actorEmail: session.email,
         storeId,
         itemId: itemRef.id,
         itemType,

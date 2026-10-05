@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { adminFirestore } from '../../../../../lib/firebase-admin';
 
 export const runtime = 'nodejs';
@@ -41,13 +42,6 @@ type OrderRecord = {
   updatedAt?: unknown;
 };
 
-function cookieValue(req: Request, name: string) {
-  return req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=')[1];
-}
-
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin' || role === 'support';
-}
 
 function text(value: unknown, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback;
@@ -120,8 +114,8 @@ function dateRangeFromUrl(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const role = cookieValue(req, 'sedifex_admin_role');
-  if (!isAllowedRole(role)) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
+  if (!session) {
     return NextResponse.json({ ok: false, error: 'Only super_admin, ops_admin, or support can view analytics.', currentRole: role || null }, { status: 403 });
   }
 

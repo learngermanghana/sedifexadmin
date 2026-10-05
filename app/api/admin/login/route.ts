@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ADMIN_SESSION_COOKIE, createAdminSessionToken } from '../../../../lib/admin-session';
 
 const CREDENTIALS = {
   admin: {
@@ -20,9 +21,10 @@ function configuredAccounts() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null) as { email?: string; password?: string } | null;
+  const body = await req.json().catch(() => null) as { email?: string; password?: string; rememberMe?: boolean } | null;
   const email = body?.email?.trim().toLowerCase() || '';
   const password = body?.password || '';
+  const rememberMe = body?.rememberMe === true;
 
   if (!email && !password) {
     return NextResponse.json({ ok: false, code: 'missing_fields', error: 'Enter your admin email and password.' }, { status: 400 });
@@ -73,9 +75,31 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({
+  const maxAge = rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24;
+  const sessionToken = await createAdminSessionToken({
+    role: account.role,
+    scope: account.scope,
+    email,
+    maxAgeSeconds: maxAge,
+  });
+
+  const response = NextResponse.json({
     ok: true,
     role: account.role,
     scope: account.scope,
   });
+
+  response.cookies.set(ADMIN_SESSION_COOKIE, sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge,
+  });
+
+  // Remove the old unsigned authorization cookies. They are no longer trusted.
+  response.cookies.set('sedifex_admin_role', '', { path: '/', maxAge: 0 });
+  response.cookies.set('sedifex_admin_scope', '', { path: '/', maxAge: 0 });
+
+  return response;
 }
