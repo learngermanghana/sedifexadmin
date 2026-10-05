@@ -18,13 +18,6 @@ const accessNotes = [
 ];
 
 const REMEMBERED_EMAIL_KEY = 'sedifex_admin_remembered_email';
-const ONE_DAY_SECONDS = 60 * 60 * 24;
-const THIRTY_DAYS_SECONDS = ONE_DAY_SECONDS * 30;
-
-function cookieMaxAge(rememberMe: boolean) {
-  return rememberMe ? THIRTY_DAYS_SECONDS : ONE_DAY_SECONDS;
-}
-
 export default function AdminLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -53,7 +46,7 @@ export default function AdminLoginPage() {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: trimmedEmail, password }),
+        body: JSON.stringify({ email: trimmedEmail, password, rememberMe }),
       });
 
       const data = (await res.json().catch(() => ({}))) as LoginResponse;
@@ -69,9 +62,6 @@ export default function AdminLoginPage() {
         window.localStorage.removeItem(REMEMBERED_EMAIL_KEY);
       }
 
-      const maxAge = cookieMaxAge(rememberMe);
-      document.cookie = `sedifex_admin_role=${encodeURIComponent(data.role)}; path=/; max-age=${maxAge}; SameSite=Lax`;
-      document.cookie = `sedifex_admin_scope=${encodeURIComponent(data.scope)}; path=/; max-age=${maxAge}; SameSite=Lax`;
       router.push('/admin');
     } catch {
       setError('Unable to reach the login service. Please try again.');
