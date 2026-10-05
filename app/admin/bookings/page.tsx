@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { CalendarDays, CreditCard, Search } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '../../../components/admin/ui';
 import { getFirebaseEnvStatus, listFirestoreDocuments } from '../../../lib/firebase-admin';
+import { getAuthenticatedAdminSession } from '../../../lib/admin-session-server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -184,6 +186,11 @@ async function loadData() {
 }
 
 export default async function AdminBookingsPage({ searchParams }: { searchParams: SearchParams }) {
+  const session = await getAuthenticatedAdminSession();
+  if (!session || session.scope !== 'platform' || !['super_admin', 'ops_admin', 'support', 'analyst'].includes(session.role)) {
+    redirect('/admin');
+  }
+
   const params = await searchParams;
   const query = (params.q || '').trim().toLowerCase();
   const view = ['attention', 'paid', 'checkout', 'all'].includes(params.view || '') ? params.view! : 'attention';
