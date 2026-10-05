@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -21,13 +22,6 @@ type RequestBody = {
   recipients?: Recipient[];
 };
 
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin' || role === 'support';
-}
-
-function cookieValue(req: Request, name: string) {
-  return req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=')[1];
-}
 
 function cleanText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
@@ -142,8 +136,8 @@ function timeoutSignal(milliseconds: number) {
 }
 
 export async function POST(req: Request) {
-  const role = cookieValue(req, 'sedifex_admin_role');
-  if (!isAllowedRole(role)) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
+  if (!session) {
     return NextResponse.json({ ok: false, error: 'You do not have permission to send Sedifex marketing emails.' }, { status: 403 });
   }
 
