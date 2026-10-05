@@ -1,14 +1,11 @@
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { repairPublicCatalogForStore } from '../../../../lib/public-catalog-repair';
 
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin' || role === 'support';
-}
 
 export async function POST(req: Request) {
-  const role = req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith('sedifex_admin_role='))?.split('=')[1];
-
-  if (!isAllowedRole(role)) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
+  if (!session) {
     return NextResponse.json({ ok: false, error: 'You do not have permission to repair public catalogs.' }, { status: 403 });
   }
 
