@@ -1,5 +1,6 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import { NextResponse } from 'next/server';
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { adminFirestore } from '@/lib/firebase-admin';
 
 export const runtime = 'nodejs';
@@ -14,21 +15,15 @@ type Body = {
 
 type RecordData = Record<string, unknown>;
 
-function cookieValue(req: Request, name: string) {
-  return req.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=')[1];
-}
-
-function isAllowedRole(role?: string) {
-  return role === 'super_admin' || role === 'ops_admin';
-}
 
 function clean(value: unknown, max = 500) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
 export async function POST(req: Request) {
-  const role = cookieValue(req, 'sedifex_admin_role');
-  if (!isAllowedRole(role)) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin'] });
+  const role = session?.role;
+  if (!session) {
     return NextResponse.json({ ok: false, error: 'Only super_admin or ops_admin can mark settlements as paid.', currentRole: role || null }, { status: 403 });
   }
 
