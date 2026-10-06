@@ -116,7 +116,7 @@ function dateRangeFromUrl(req: Request) {
 export async function GET(req: Request) {
   const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
   if (!session) {
-    return NextResponse.json({ ok: false, error: 'Only super_admin, ops_admin, or support can view analytics.', currentRole: role || null }, { status: 403 });
+    return NextResponse.json({ ok: false, error: 'Only super_admin, ops_admin, or support can view analytics.', currentRole: null }, { status: 403 });
   }
 
   try {
