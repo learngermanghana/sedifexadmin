@@ -212,7 +212,7 @@ function scoreProduct(record: RawRecord, imageUrl: string, price: number) {
 export async function GET(req: Request) {
   const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
   if (!session) {
-    return NextResponse.json({ ok: false, error: 'Only super_admin, ops_admin, or support can generate product marketing picks.', currentRole: role || null }, { status: 403 });
+    return NextResponse.json({ ok: false, error: 'Only super_admin, ops_admin, or support can generate product marketing picks.', currentRole: null }, { status: 403 });
   }
 
   try {
