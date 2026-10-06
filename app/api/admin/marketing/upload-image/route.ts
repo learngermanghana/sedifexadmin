@@ -86,7 +86,7 @@ export async function POST(req: Request) {
   try {
     const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support'] });
     if (!session) {
-      return json({ ok: false, error: 'Only super_admin, ops_admin, or support can upload marketing images.', currentRole: role || null }, 403);
+      return json({ ok: false, error: 'Only super_admin, ops_admin, or support can upload marketing images.', currentRole: null }, 403);
     }
 
     const contentType = req.headers.get('content-type') || '';
