@@ -140,7 +140,10 @@ export function CatalogItemFields({
   const [serviceKind, setServiceKind] = useState<ServiceKind>(
     defaults.itemType === 'tour_package' ? 'tour_package' : defaults.serviceKind,
   );
-  const [currency, setCurrency] = useState(defaults.currency === 'USD' ? 'USD' : 'GHS');
+  const [currency, setCurrency] = useState(() => {
+    const value = defaults.currency.trim().toUpperCase();
+    return /^[A-Z]{3,5}$/.test(value) ? value : 'GHS';
+  });
   const [allowDepositPayment, setAllowDepositPayment] = useState(defaults.allowDepositPayment);
   const [itinerary, setItinerary] = useState<TourItineraryDay[]>(
     defaults.itinerary.length > 0 ? defaults.itinerary : [{ day: 1, title: '', description: '' }],
@@ -226,16 +229,28 @@ export function CatalogItemFields({
         <div>
           <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor={id('currency')}>{isCourse ? 'Fee' : isTourPackage ? 'Starting price' : isService ? 'Price' : 'Selling price'}</label>
           <div className="grid grid-cols-[130px_1fr] gap-2">
-            <select
-              id={id('currency')}
-              name="currency"
-              value={currency}
-              onChange={(event) => setCurrency(event.target.value === 'USD' ? 'USD' : 'GHS')}
-              className="rounded-2xl border border-slate-200 px-3 py-3 text-sm text-slate-950 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
-            >
-              <option value="GHS">GHS — Ghana cedi</option>
-              <option value="USD">USD — US dollar</option>
-            </select>
+            <div>
+              <input
+                id={id('currency')}
+                name="currency"
+                list={id('currency-options')}
+                value={currency}
+                onChange={(event) => setCurrency(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5))}
+                pattern="[A-Za-z]{3,5}"
+                maxLength={5}
+                placeholder="GHS"
+                aria-label="Currency code"
+                required
+                className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm uppercase text-slate-950 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
+              />
+              <datalist id={id('currency-options')}>
+                <option value="GHS" />
+                <option value="USD" />
+                <option value="EUR" />
+                <option value="GBP" />
+                <option value="ZAR" />
+              </datalist>
+            </div>
             <input
               name="price"
               type="number"
@@ -273,7 +288,7 @@ export function CatalogItemFields({
           </div>
         </section>
       ) : (
-        <input type="hidden" name="serviceKind" value={isTourPackage ? 'tour_package' : defaults.serviceKind} />
+        <input type="hidden" name="serviceKind" value={serviceKind} />
       )}
 
       {isTourPackage ? (
