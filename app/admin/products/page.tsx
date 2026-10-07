@@ -11,6 +11,7 @@ import {
   Tag,
   WalletCards,
 } from 'lucide-react';
+import { CatalogItemFields, type CatalogItemEditorDefaults } from '../../../components/admin/catalog-item-fields';
 import { SectionCard, StatCard, StatusBadge } from '../../../components/admin/ui';
 import { getFirebaseEnvStatus, listFirestoreDocuments, setFirestoreDocument } from '../../../lib/firebase-admin';
 
@@ -114,7 +115,12 @@ function getItemName(item: CatalogItem) {
 }
 
 function getItemType(item: CatalogItem) {
+  const serviceKind = fieldText(item, ['serviceKind'], '').toLowerCase();
+  if (serviceKind === 'tour_package') return 'tour_package';
   const raw = fieldText(item, ['itemType', 'type', 'kind'], item.collectionName).toLowerCase();
+  if (raw === 'tour_package') return 'tour_package';
+  if (raw === 'made_to_order') return 'made_to_order';
+  if (raw === 'digital_item') return 'digital_item';
   if (raw.includes('service')) return 'service';
   if (raw.includes('course')) return 'course';
   if (raw.includes('catalog')) return item.collectionName === 'catalog' ? 'product' : item.collectionName;
@@ -142,6 +148,107 @@ function getImageUrl(item: CatalogItem) {
 
 function getDescription(item: CatalogItem) {
   return fieldText(item, ['description', 'summary', 'shortDescription'], '');
+}
+
+function optionalNumberText(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : fieldText({ value } as Record<string, unknown>, ['value'], '');
+}
+
+function booleanValue(value: unknown) {
+  return value === true;
+}
+
+function stringArray(value: unknown) {
+  if (!Array.isArray(value)) return [] as string[];
+  return value.map((entry) => typeof entry === 'string' ? entry.trim() : '').filter(Boolean);
+}
+
+function itineraryArray(value: unknown) {
+  if (!Array.isArray(value)) return [] as Array<{ day: number; title: string; description: string }>;
+  return value.map((entry, index) => {
+    const record = asRecord(entry) || {};
+    return {
+      day: Math.max(1, Number(record.day) || index + 1),
+      title: typeof record.title === 'string' ? record.title : '',
+      description: typeof record.description === 'string' ? record.description : '',
+    };
+  });
+}
+
+function dateInputValue(value: unknown) {
+  const millis = timestampToMillis(value);
+  if (millis === null) return '';
+  return new Date(millis).toISOString().slice(0, 10);
+}
+
+function catalogEditorDefaults(item: CatalogItem): CatalogItemEditorDefaults {
+  const itemType = getItemType(item) as CatalogItemEditorDefaults['itemType'];
+  const serviceKindRaw = fieldText(item, ['serviceKind'], '');
+  const serviceKind: CatalogItemEditorDefaults['serviceKind'] =
+    itemType === 'tour_package' || serviceKindRaw === 'tour_package'
+      ? 'tour_package'
+      : serviceKindRaw === 'quote_request'
+        ? 'quote_request'
+        : 'consultation';
+
+  const courseModeRaw = fieldText(item, ['courseMode'], 'in_person');
+  const courseMode: CatalogItemEditorDefaults['courseMode'] =
+    courseModeRaw === 'online' || courseModeRaw === 'hybrid' ? courseModeRaw : 'in_person';
+
+  const imageUrls = Array.isArray(item.imageUrls)
+    ? stringArray(item.imageUrls)
+    : stringArray(item.images);
+
+  return {
+    name: getItemName(item) === 'Untitled item' ? '' : getItemName(item),
+    storeId: getStoreId(item),
+    itemType,
+    category: getCategory(item),
+    subcategory: fieldText(item, ['subcategory'], ''),
+    price: getPriceText(item),
+    currency: (() => {
+      const currency = fieldText(item, ['currency'], 'GHS').toUpperCase();
+      return /^[A-Z]{3,5}$/.test(currency) ? currency : 'GHS';
+    })(),
+    description: getDescription(item),
+    imageUrl: getImageUrl(item),
+    imageUrls,
+    websiteVisible: websiteVisible(item),
+    sku: fieldText(item, ['sku', 'barcode'], ''),
+    brand: fieldText(item, ['brand', 'manufacturerName'], ''),
+    costPrice: optionalNumberText(item.costPrice),
+    openingStock: optionalNumberText(item.stockCount),
+    reorderPoint: optionalNumberText(item.reorderPoint ?? item.reorderLevel),
+    expiryDate: dateInputValue(item.expiryDate),
+    serviceKind,
+    durationMinutes: optionalNumberText(item.durationMinutes),
+    location: fieldText(item, ['location', 'branch'], ''),
+    destination: fieldText(item, ['destination'], ''),
+    tourStyle: fieldText(item, ['tourStyle'], ''),
+    durationDays: optionalNumberText(item.durationDays),
+    durationNights: optionalNumberText(item.durationNights),
+    startingCity: fieldText(item, ['startingCity'], ''),
+    endingCity: fieldText(item, ['endingCity'], ''),
+    capacity: optionalNumberText(item.capacity),
+    shortSummary: fieldText(item, ['shortSummary'], ''),
+    itinerary: itineraryArray(item.itinerary),
+    inclusions: stringArray(item.inclusions),
+    exclusions: stringArray(item.exclusions),
+    allowDepositPayment: booleanValue(item.allowDepositPayment),
+    depositAmount: optionalNumberText(item.depositAmount),
+    branch: fieldText(item, ['branch', 'location'], ''),
+    preferredTimes: fieldText(item, ['preferredTimes', 'classTimes'], ''),
+    startDate: dateInputValue(item.startDate),
+    registrationFee: optionalNumberText(item.registrationFee),
+    fullFee: optionalNumberText(item.fullFee),
+    duration: fieldText(item, ['duration'], ''),
+    courseLevel: fieldText(item, ['courseLevel'], ''),
+    courseMode,
+    requirements: fieldText(item, ['requirements'], ''),
+    starterItems: fieldText(item, ['starterItems'], ''),
+    certificateIncluded: booleanValue(item.certificateIncluded),
+    Agreement: fieldText(item, ['Agreement'], ''),
+  };
 }
 
 function hasImage(item: CatalogItem) {
@@ -268,40 +375,132 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
   const now = new Date().toISOString();
   const name = cleanText(formData.get('name'));
   const storeId = cleanText(formData.get('storeId'));
-  const itemType = cleanText(formData.get('itemType')) || 'product';
+  const rawItemType = cleanText(formData.get('itemType')) || 'product';
+  const rawServiceKind = cleanText(formData.get('serviceKind')) || 'consultation';
+  const itemType = rawItemType === 'tour_package' || rawServiceKind === 'tour_package'
+    ? 'tour_package'
+    : ['product', 'service', 'made_to_order', 'course', 'digital_item'].includes(rawItemType)
+      ? rawItemType
+      : 'product';
+
+  const isTourPackage = itemType === 'tour_package';
+  const isCourse = itemType === 'course';
+  const isService = itemType === 'service' || itemType === 'made_to_order' || isTourPackage;
+  const behavesLikeService = isService || isCourse;
+
   const category = cleanText(formData.get('category'));
+  const normalizedCategory = category || (itemType === 'course' ? 'Education' : isTourPackage ? 'Travel & Tours' : isService ? 'General Services' : 'General Products');
+  const subcategory = cleanText(formData.get('subcategory'));
   const imageUrl = cleanText(formData.get('imageUrl'));
+  const imageUrls = cleanText(formData.get('imageUrls')).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const normalizedImageUrls = Array.from(new Set([imageUrl, ...imageUrls].filter(Boolean)));
   const description = cleanText(formData.get('description'));
   const price = parseMoney(formData.get('price'));
+  if (!name) throw new Error('Name is required.');
+  if (price === null) throw new Error('Price is required.');
+  if (isTourPackage && !cleanText(formData.get('destination'))) throw new Error('Destination is required for a tour package.');
+  if (isTourPackage && parseMoney(formData.get('durationDays')) === null) throw new Error('Enter the number of tour days.');
+
+  const currency = (cleanText(formData.get('currency')) || 'GHS').toUpperCase();
+  if (!/^[A-Z]{3,5}$/.test(currency)) {
+    throw new Error('Currency must be a 3–5 letter code such as GHS, USD, EUR, GBP, or ZAR.');
+  }
   const visible = formData.get('websiteVisible') === 'on';
+  const serviceKind = isTourPackage
+    ? 'tour_package'
+    : isCourse
+      ? 'course_enrollment'
+      : rawServiceKind === 'quote_request'
+        ? 'quote_request'
+        : 'consultation';
+  const listingType = isCourse ? 'course' : isService ? 'service' : 'product';
+  const salesMode = isCourse ? 'register' : isService ? (serviceKind === 'quote_request' ? 'request_quote' : 'book_now') : 'buy_now';
+
+  const itineraryDays = formData.getAll('itineraryDay');
+  const itineraryTitles = formData.getAll('itineraryTitle');
+  const itineraryDescriptions = formData.getAll('itineraryDescription');
+  const itinerary = itineraryTitles.map((value, index) => ({
+    day: Math.max(1, Number(cleanText(itineraryDays[index] ?? null)) || index + 1),
+    title: cleanText(value),
+    description: cleanText(itineraryDescriptions[index] ?? null),
+  })).filter((entry) => entry.title || entry.description);
+
+  const inclusions = formData.getAll('inclusions').map((value) => cleanText(value)).filter(Boolean);
+  const exclusions = formData.getAll('exclusions').map((value) => cleanText(value)).filter(Boolean);
 
   const update: Record<string, unknown> = {
     itemType,
     type: itemType,
+    listingType,
+    serviceKind,
+    salesMode,
+    enrollmentMode: isCourse ? 'always_open' : isTourPackage ? 'scheduled' : null,
+    category: normalizedCategory,
+    categoryName: normalizedCategory,
+    categoryKey: normalizedCategory.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+    subcategory: subcategory || null,
+    description: description || null,
+    price,
+    currency,
+    imageUrl: normalizedImageUrls[0] || null,
+    image: normalizedImageUrls[0] || null,
+    imageUrls: normalizedImageUrls,
+    imageAlt: name || null,
     isWebsiteVisible: visible,
     websiteVisible: visible,
-    isPublished: visible,
-    active: visible,
-    status: visible ? 'published' : 'draft',
+    isPublished: true,
+    active: true,
+    status: 'published',
+    updatedAt: new Date(),
     adminUpdatedAt: now,
     adminUpdatedFrom: 'sedifexadmin-client-catalog-review',
+
+    costPrice: behavesLikeService ? null : parseMoney(formData.get('costPrice')),
+    sku: behavesLikeService ? null : cleanText(formData.get('sku')) || null,
+    barcode: behavesLikeService ? null : cleanText(formData.get('sku')) || null,
+    stockCount: behavesLikeService ? null : parseMoney(formData.get('openingStock')),
+    reorderPoint: behavesLikeService ? null : parseMoney(formData.get('reorderPoint')),
+    expiryDate: behavesLikeService || !cleanText(formData.get('expiryDate')) ? null : new Date(cleanText(formData.get('expiryDate'))),
+    brand: behavesLikeService ? null : cleanText(formData.get('brand')) || null,
+    manufacturerName: behavesLikeService ? null : cleanText(formData.get('brand')) || null,
+
+    durationMinutes: isService && !isTourPackage ? parseMoney(formData.get('durationMinutes')) : null,
+    location: isService && !isTourPackage ? cleanText(formData.get('location')) || null : null,
+
+    destination: isTourPackage ? cleanText(formData.get('destination')) || null : null,
+    tourStyle: isTourPackage ? cleanText(formData.get('tourStyle')) || null : null,
+    durationDays: isTourPackage ? parseMoney(formData.get('durationDays')) : null,
+    durationNights: isTourPackage ? parseMoney(formData.get('durationNights')) : null,
+    startingCity: isTourPackage ? cleanText(formData.get('startingCity')) || null : null,
+    endingCity: isTourPackage ? cleanText(formData.get('endingCity')) || null : null,
+    shortSummary: isTourPackage ? cleanText(formData.get('shortSummary')) || null : null,
+    itinerary: isTourPackage ? itinerary : [],
+    inclusions: isTourPackage ? inclusions : [],
+    exclusions: isTourPackage ? exclusions : [],
+    allowDepositPayment: isTourPackage ? formData.get('allowDepositPayment') === 'on' : false,
+    depositAmount: isTourPackage ? parseMoney(formData.get('depositAmount')) : null,
+
+    branch: isCourse ? cleanText(formData.get('branch')) || null : null,
+    preferredTimes: isCourse ? cleanText(formData.get('preferredTimes')) || null : null,
+    classTimes: isCourse ? cleanText(formData.get('preferredTimes')) || null : null,
+    startDate: isCourse && cleanText(formData.get('startDate')) ? new Date(cleanText(formData.get('startDate'))) : null,
+    registrationFee: isCourse ? parseMoney(formData.get('registrationFee')) : null,
+    fullFee: isCourse ? parseMoney(formData.get('fullFee')) ?? price : null,
+    duration: isCourse ? cleanText(formData.get('duration')) || null : null,
+    capacity: isCourse || isTourPackage ? parseMoney(formData.get('capacity')) : null,
+    courseLevel: isCourse ? cleanText(formData.get('courseLevel')) || null : null,
+    courseMode: isCourse ? cleanText(formData.get('courseMode')) || 'in_person' : null,
+    requirements: isCourse ? cleanText(formData.get('requirements')) || null : null,
+    starterItems: isCourse ? cleanText(formData.get('starterItems')) || null : null,
+    certificateIncluded: isCourse ? formData.get('certificateIncluded') === 'on' : null,
+    Agreement: isCourse ? cleanText(formData.get('Agreement')) || null : null,
   };
 
-  if (name) {
-    update.name = name;
-    update.title = name;
-  }
+  update.name = name;
+  update.title = name;
   if (storeId) update.storeId = storeId;
-  if (category) {
-    update.category = category;
-    update.categoryName = category;
-  }
-  if (imageUrl) {
-    update.imageUrl = imageUrl;
-    update.image = imageUrl;
-  }
-  if (description) update.description = description;
-  if (price !== null) update.price = price;
+  if (currency === 'GHS' && price !== null) update.priceGhs = price;
+  if (currency === 'USD' && price !== null) update.priceUsd = price;
 
   await setFirestoreDocument(itemPath, update);
 
@@ -314,26 +513,8 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
       changedFields: Object.keys(update),
     });
   }
-
 }
 
-function TextInput({ label, name, defaultValue, placeholder, type = 'text' }: { label: string; name: string; defaultValue?: string; placeholder?: string; type?: string }) {
-  return (
-    <div>
-      <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor={`${name}-${defaultValue || placeholder || label}`}>
-        {label}
-      </label>
-      <input
-        id={`${name}-${defaultValue || placeholder || label}`}
-        name={name}
-        type={type}
-        defaultValue={defaultValue}
-        placeholder={placeholder}
-        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
-      />
-    </div>
-  );
-}
 
 export default async function ProductsPage() {
   const catalog = await loadCatalog();
@@ -478,32 +659,14 @@ export default async function ProductsPage() {
                       </div>
                     )}
 
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <TextInput label="Name" name="name" defaultValue={getItemName(item) === 'Untitled item' ? '' : getItemName(item)} placeholder="Item name" />
-                      <TextInput label="Store ID" name="storeId" defaultValue={storeId} placeholder="Paste store ID" />
-                      <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor={`type-${itemPath}`}>Type</label>
-                        <select id={`type-${itemPath}`} name="itemType" defaultValue={getItemType(item)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10">
-                          <option value="product">Product</option>
-                          <option value="service">Service</option>
-                          <option value="course">Course</option>
-                        </select>
-                      </div>
-                      <TextInput label="Category" name="category" defaultValue={getCategory(item)} placeholder="Category" />
-                      <TextInput label="Price" name="price" defaultValue={getPriceText(item)} placeholder="0.00" />
-                      <TextInput label="Image URL" name="imageUrl" type="url" defaultValue={getImageUrl(item)} placeholder="https://..." />
-                      <div className="md:col-span-3">
-                        <TextInput label="Description" name="description" defaultValue={getDescription(item)} placeholder="Short item description" />
-                      </div>
-                    </div>
+                    <CatalogItemFields
+                      defaults={catalogEditorDefaults(item)}
+                      fieldIdPrefix={itemPath.replace(/[^a-zA-Z0-9_-]/g, '-')}
+                    />
 
-                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input type="checkbox" name="websiteVisible" defaultChecked={websiteVisible(item)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
-                        Publish on client Sedifex website
-                      </label>
+                    <div className="mt-4 flex justify-end">
                       <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-indigo-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-400">
-                        <Save className="h-4 w-4" /> Save catalog fix
+                        <Save className="h-4 w-4" /> Save item
                       </button>
                     </div>
                   </form>
