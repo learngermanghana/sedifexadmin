@@ -386,12 +386,18 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
   const behavesLikeService = isService || isCourse;
 
   const category = cleanText(formData.get('category'));
+  const normalizedCategory = category || (itemType === 'course' ? 'Education' : isTourPackage ? 'Travel & Tours' : isService ? 'General Services' : 'General Products');
   const subcategory = cleanText(formData.get('subcategory'));
   const imageUrl = cleanText(formData.get('imageUrl'));
   const imageUrls = cleanText(formData.get('imageUrls')).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
   const normalizedImageUrls = Array.from(new Set([imageUrl, ...imageUrls].filter(Boolean)));
   const description = cleanText(formData.get('description'));
   const price = parseMoney(formData.get('price'));
+  if (!name) throw new Error('Name is required.');
+  if (price === null) throw new Error('Price is required.');
+  if (isTourPackage && !cleanText(formData.get('destination'))) throw new Error('Destination is required for a tour package.');
+  if (isTourPackage && parseMoney(formData.get('durationDays')) === null) throw new Error('Enter the number of tour days.');
+
   const currency = cleanText(formData.get('currency')).toUpperCase() === 'USD' ? 'USD' : 'GHS';
   const visible = formData.get('websiteVisible') === 'on';
   const serviceKind = isTourPackage
@@ -423,9 +429,9 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
     serviceKind,
     salesMode,
     enrollmentMode: isCourse ? 'always_open' : isTourPackage ? 'scheduled' : null,
-    category: category || null,
-    categoryName: category || null,
-    categoryKey: category ? category.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') : null,
+    category: normalizedCategory,
+    categoryName: normalizedCategory,
+    categoryKey: normalizedCategory.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
     subcategory: subcategory || null,
     description: description || null,
     price,
@@ -439,6 +445,7 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
     isPublished: true,
     active: true,
     status: 'published',
+    updatedAt: new Date(),
     adminUpdatedAt: now,
     adminUpdatedFrom: 'sedifexadmin-client-catalog-review',
 
@@ -447,7 +454,7 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
     barcode: behavesLikeService ? null : cleanText(formData.get('sku')) || null,
     stockCount: behavesLikeService ? null : parseMoney(formData.get('openingStock')),
     reorderPoint: behavesLikeService ? null : parseMoney(formData.get('reorderPoint')),
-    expiryDate: behavesLikeService || !cleanText(formData.get('expiryDate')) ? null : cleanText(formData.get('expiryDate')),
+    expiryDate: behavesLikeService || !cleanText(formData.get('expiryDate')) ? null : new Date(cleanText(formData.get('expiryDate'))),
     brand: behavesLikeService ? null : cleanText(formData.get('brand')) || null,
     manufacturerName: behavesLikeService ? null : cleanText(formData.get('brand')) || null,
 
@@ -470,7 +477,7 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
     branch: isCourse ? cleanText(formData.get('branch')) || null : null,
     preferredTimes: isCourse ? cleanText(formData.get('preferredTimes')) || null : null,
     classTimes: isCourse ? cleanText(formData.get('preferredTimes')) || null : null,
-    startDate: isCourse ? cleanText(formData.get('startDate')) || null : null,
+    startDate: isCourse && cleanText(formData.get('startDate')) ? new Date(cleanText(formData.get('startDate'))) : null,
     registrationFee: isCourse ? parseMoney(formData.get('registrationFee')) : null,
     fullFee: isCourse ? parseMoney(formData.get('fullFee')) ?? price : null,
     duration: isCourse ? cleanText(formData.get('duration')) || null : null,
@@ -483,10 +490,8 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
     Agreement: isCourse ? cleanText(formData.get('Agreement')) || null : null,
   };
 
-  if (name) {
-    update.name = name;
-    update.title = name;
-  }
+  update.name = name;
+  update.title = name;
   if (storeId) update.storeId = storeId;
   if (currency === 'GHS' && price !== null) update.priceGhs = price;
   if (currency === 'USD' && price !== null) update.priceUsd = price;
