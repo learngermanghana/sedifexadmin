@@ -206,7 +206,10 @@ function catalogEditorDefaults(item: CatalogItem): CatalogItemEditorDefaults {
     category: getCategory(item),
     subcategory: fieldText(item, ['subcategory'], ''),
     price: getPriceText(item),
-    currency: fieldText(item, ['currency'], 'GHS').toUpperCase() === 'USD' ? 'USD' : 'GHS',
+    currency: (() => {
+      const currency = fieldText(item, ['currency'], 'GHS').toUpperCase();
+      return /^[A-Z]{3,5}$/.test(currency) ? currency : 'GHS';
+    })(),
     description: getDescription(item),
     imageUrl: getImageUrl(item),
     imageUrls,
@@ -398,7 +401,10 @@ async function updateCatalogItem(itemPath: string, formData: FormData) {
   if (isTourPackage && !cleanText(formData.get('destination'))) throw new Error('Destination is required for a tour package.');
   if (isTourPackage && parseMoney(formData.get('durationDays')) === null) throw new Error('Enter the number of tour days.');
 
-  const currency = cleanText(formData.get('currency')).toUpperCase() === 'USD' ? 'USD' : 'GHS';
+  const currency = (cleanText(formData.get('currency')) || 'GHS').toUpperCase();
+  if (!/^[A-Z]{3,5}$/.test(currency)) {
+    throw new Error('Currency must be a 3–5 letter code such as GHS, USD, EUR, GBP, or ZAR.');
+  }
   const visible = formData.get('websiteVisible') === 'on';
   const serviceKind = isTourPackage
     ? 'tour_package'
