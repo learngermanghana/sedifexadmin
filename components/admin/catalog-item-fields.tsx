@@ -140,6 +140,7 @@ export function CatalogItemFields({
   const [serviceKind, setServiceKind] = useState<ServiceKind>(
     defaults.itemType === 'tour_package' ? 'tour_package' : defaults.serviceKind,
   );
+  const [currency, setCurrency] = useState(defaults.currency === 'USD' ? 'USD' : 'GHS');
   const [allowDepositPayment, setAllowDepositPayment] = useState(defaults.allowDepositPayment);
   const [itinerary, setItinerary] = useState<TourItineraryDay[]>(
     defaults.itinerary.length > 0 ? defaults.itinerary : [{ day: 1, title: '', description: '' }],
@@ -228,7 +229,8 @@ export function CatalogItemFields({
             <select
               id={id('currency')}
               name="currency"
-              defaultValue={defaults.currency === 'USD' ? 'USD' : 'GHS'}
+              value={currency}
+              onChange={(event) => setCurrency(event.target.value === 'USD' ? 'USD' : 'GHS')}
               className="rounded-2xl border border-slate-200 px-3 py-3 text-sm text-slate-950 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
             >
               <option value="GHS">GHS — Ghana cedi</option>
@@ -309,8 +311,29 @@ export function CatalogItemFields({
                 <div key={index} className="grid gap-3 rounded-2xl bg-slate-50 p-3 md:grid-cols-[80px_1fr_1.4fr_auto] md:items-end">
                   <div className="pb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Day {index + 1}</div>
                   <input type="hidden" name="itineraryDay" value={index + 1} />
-                  <Field label="Title" name="itineraryTitle" id={id(`itinerary-${index}-title`)} defaultValue={day.title} placeholder="e.g. Tokyo Arrival" />
-                  <TextArea label="Details" name="itineraryDescription" id={id(`itinerary-${index}-description`)} defaultValue={day.description} placeholder="Airport transfer, hotel check-in, activities…" rows={2} />
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor={id(`itinerary-${index}-title`)}>Title</label>
+                    <input
+                      id={id(`itinerary-${index}-title`)}
+                      name="itineraryTitle"
+                      value={day.title}
+                      onChange={(event) => updateItinerary(index, 'title', event.target.value)}
+                      placeholder="e.g. Tokyo Arrival"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor={id(`itinerary-${index}-description`)}>Details</label>
+                    <textarea
+                      id={id(`itinerary-${index}-description`)}
+                      name="itineraryDescription"
+                      value={day.description}
+                      onChange={(event) => updateItinerary(index, 'description', event.target.value)}
+                      placeholder="Airport transfer, hotel check-in, activities…"
+                      rows={2}
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
+                    />
+                  </div>
                   <button type="button" onClick={() => removeItinerary(index)} className="mb-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-white">Remove</button>
                 </div>
               ))}
@@ -362,7 +385,7 @@ export function CatalogItemFields({
               />
               Allow deposit payment
             </label>
-            {allowDepositPayment ? <Field label={`Deposit amount (${defaults.currency === 'USD' ? 'USD' : 'GHS'})`} name="depositAmount" id={id('tour-deposit')} defaultValue={defaults.depositAmount} type="number" min="0" step="0.01" /> : null}
+            {allowDepositPayment ? <Field label={`Deposit amount (${currency})`} name="depositAmount" id={id('tour-deposit')} defaultValue={defaults.depositAmount} type="number" min="0" step="0.01" /> : null}
           </div>
         </section>
       ) : null}
