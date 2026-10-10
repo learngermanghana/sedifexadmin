@@ -83,7 +83,7 @@ export async function GET(req: Request) {
   const limit = Number(url.searchParams.get('limit') || 50);
 
   try {
-    const data = await listFirestoreDocuments('integrationOrders', limit);
+    const data = await listFirestoreDocuments('integrationOrders', Number.isFinite(limit) ? limit : 100, url.searchParams.get('pageToken') || undefined);
     const orders = data.documents as RawRecord[];
     const storesById = await loadStoresById(orders.map(storeIdFromOrder));
 
