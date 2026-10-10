@@ -2,13 +2,13 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { CalendarDays, CreditCard, Search } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '../../../components/admin/ui';
-import { getFirebaseEnvStatus, listFirestoreDocuments } from '../../../lib/firebase-admin';
+import { getFirebaseEnvStatus, listAllFirestoreDocuments } from '../../../lib/firebase-admin';
 import { getAuthenticatedAdminSession } from '../../../lib/admin-session-server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-type SearchParams = Promise<{ q?: string; view?: string }>;
+type SearchParams = Promise<{ q?: string; view?: string; page?: string }>;
 type Doc = Record<string, unknown> & { id?: string; path?: string; createTime?: string | null; updateTime?: string | null };
 
 function record(value: unknown): Record<string, unknown> {
@@ -165,13 +165,15 @@ function notificationSummary(rows: Doc[], bookingReference: string) {
 }
 
 async function loadData() {
-  if (!getFirebaseEnvStatus().ready) return { bookings: [] as Doc[], notifications: [] as Doc[], stores: new Map<string, string>(), error: 'Firebase environment variables are not ready.' };
+  if (!getFirebaseEnvStatus().ready) return { bookings: [] as Doc[], notifications: [] as Doc[], warnings: [] as string[], notificationsAvailable: false, stores: new Map<string, string>(), error: 'Firebase environment variables are not ready.' };
   try {
+    const warnings: string[] = [];
+    let notificationsAvailable = true;
     const [bookingsResult, notificationsResult, storesResult, settingsResult] = await Promise.all([
-      listFirestoreDocuments('integrationBookings', 1000),
-      listFirestoreDocuments('notification_outbox', 1000).catch(() => ({ documents: [] as Doc[] })),
-      listFirestoreDocuments('stores', 500).catch(() => ({ documents: [] as Doc[] })),
-      listFirestoreDocuments('storeSettings', 500).catch(() => ({ documents: [] as Doc[] })),
+      listAllFirestoreDocuments('integrationBookings'),
+      listAllFirestoreDocuments('notification_outbox').catch(() => { notificationsAvailable = false; warnings.push('Notification status could not be loaded. Refresh to retry.'); return { documents: [] as Doc[] }; }),
+      listAllFirestoreDocuments('stores').catch(() => { warnings.push('Some workspace names could not be loaded. Showing workspace IDs.'); return { documents: [] as Doc[] }; }),
+      listAllFirestoreDocuments('storeSettings').catch(() => { warnings.push('Some workspace names could not be loaded. Showing workspace IDs.'); return { documents: [] as Doc[] }; }),
     ]);
     const stores = new Map<string, string>();
     [...(settingsResult.documents as Doc[]), ...(storesResult.documents as Doc[])].forEach((store) => {
@@ -179,9 +181,9 @@ async function loadData() {
       if (!id) return;
       stores.set(id, text(store.displayName ?? store.storeName ?? store.businessName ?? store.name, id));
     });
-    return { bookings: bookingsResult.documents as Doc[], notifications: notificationsResult.documents as Doc[], stores, error: null as string | null };
+    return { bookings: bookingsResult.documents as Doc[], notifications: notificationsResult.documents as Doc[], warnings: [...new Set(warnings)], notificationsAvailable, stores, error: null as string | null };
   } catch (error) {
-    return { bookings: [] as Doc[], notifications: [] as Doc[], stores: new Map<string, string>(), error: error instanceof Error ? error.message : 'Unable to load bookings.' };
+    return { bookings: [] as Doc[], notifications: [] as Doc[], warnings: [] as string[], notificationsAvailable: false, stores: new Map<string, string>(), error: error instanceof Error ? error.message : 'Unable to load bookings.' };
   }
 }
 
@@ -211,6 +213,17 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
     return true;
   });
 
+  const notificationsByReference = new Map<string, Doc[]>();
+  for (const notification of data.notifications) {
+    const key = text(notification.reference);
+    const records = notificationsByReference.get(key) || [];
+    records.push(notification);
+    notificationsByReference.set(key, records);
+  }
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
+  const requestedPage = Number(params.page);
+  const page = Math.min(pageCount, Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1);
+  const pageHref = (target: number) => `/admin/bookings?${new URLSearchParams({ view, q: params.q || '', page: String(target) })}`;
   const stats = [
     { label: 'Needs confirmation', value: String(all.filter(attention).length), delta: 'Booking or payment review' },
     { label: 'Checkout created', value: String(all.filter((row) => paymentStatus(row) === 'checkout_created').length), delta: 'Not yet Paystack-confirmed' },
@@ -239,6 +252,7 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
 
       {data.error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{data.error}</div> : null}
 
+      {data.warnings.map(warning => <p key={warning} role="alert" className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">{warning}</p>)}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
       </section>
@@ -261,6 +275,12 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
           ))}
         </div>
 
+        <nav aria-label="Booking pages" className="mb-4 flex flex-wrap gap-4 text-sm">
+          <span>{filtered.length} matching bookings · Page {page} of {pageCount}</span>
+          {page > 1 ? <Link href={pageHref(page - 1)}>Previous</Link> : null}
+          {page < pageCount ? <Link href={pageHref(page + 1)}>Next</Link> : null}
+          <a href={pageHref(page)}>Refresh</a>
+        </nav>
         <div className="overflow-x-auto rounded-2xl border border-slate-200">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -277,9 +297,9 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {filtered.length ? filtered.slice(0, 200).map((row) => {
+              {filtered.length ? filtered.slice((page - 1) * 50, page * 50).map((row) => {
                 const owner = storeId(row);
-                const emailState = notificationSummary(data.notifications, reference(row));
+                const emailState = data.notificationsAvailable ? notificationSummary(notificationsByReference.get(reference(row)) || [], reference(row)) : { label: 'Status unavailable', tone: 'yellow' as const, detail: 'Notification records could not be loaded. Refresh to retry.' };
                 return (
                   <tr key={row.id || reference(row)}>
                     <td className="px-4 py-3 text-xs text-slate-500">{formatDate(createdAt(row))}</td>
