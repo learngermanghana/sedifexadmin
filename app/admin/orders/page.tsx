@@ -392,35 +392,78 @@ export default function OrdersPage() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
+  const requestInFlight = useRef(false);
+  const actionInFlight = useRef(false);
+  const [newOrderMessage, setNewOrderMessage] = useState('');
+  const [page, setPage] = useState(1);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [filtersReady, setFiltersReady] = useState(false);
+  const filtersHydrated = useRef(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  useEffect(() => {
+    if (filtersHydrated.current) return;
+    filtersHydrated.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const bucket = params.get('view') as Bucket;
+    if (bucket && bucket in BUCKET_LABELS) setActiveBucket(bucket);
+    setQuery(params.get('q') || '');
+    const requestedPage = Number(params.get('page'));
+    setPage(Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1);
+    setFiltersReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    params.set('view', activeBucket);
+    params.set('page', String(page));
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params}`);
+  }, [query, activeBucket, page, filtersReady]);
 
   const fetchOrders = useCallback(async (initial = false) => {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
+    setRefreshing(true);
     try {
-      const res = await fetch('/api/admin/firestore/integration-orders?limit=100', { cache: 'no-store' });
-      const raw = await res.text();
-      let json: { ok?: boolean; data?: OrderRecord[]; error?: string } | null = null;
-      try { json = JSON.parse(raw); } catch {}
-      if (!res.ok || !json?.ok) throw new Error(json?.error || raw || 'Failed to load orders');
-
-      const data: OrderRecord[] = (json.data || []).sort((a, b) => orderTime(b) - orderTime(a));
+      const data: OrderRecord[] = [];
+      let pageToken: string | null = null;
+      do {
+        const params = new URLSearchParams({ limit: '100' });
+        if (pageToken) params.set('pageToken', pageToken);
+        const res = await fetch(`/api/admin/firestore/integration-orders?${params}`, { cache: 'no-store' });
+        const json = await res.json() as { ok?: boolean; data?: OrderRecord[]; error?: string; nextPageToken?: string | null };
+        if (!res.ok || !json.ok) throw new Error(json.error || 'Failed to load orders');
+        data.push(...(json.data || []));
+        pageToken = json.nextPageToken || null;
+      } while (pageToken);
+      data.sort((a, b) => orderTime(b) - orderTime(a));
       if (!initial) {
         const newOrders = data.filter((order) => order.id && !knownIds.current.has(order.id));
-        if (newOrders.length > 0) alert(`🔔 ${newOrders.length} new order${newOrders.length > 1 ? 's' : ''} received.`);
+        if (newOrders.length > 0) setNewOrderMessage(`${newOrders.length} new order${newOrders.length > 1 ? 's' : ''} received.`);
       }
 
       knownIds.current = new Set(data.map((order) => order.id).filter(Boolean));
       setOrders(data);
+      setHasLoaded(true);
+      setLastUpdated(new Date().toLocaleTimeString());
       setError(null);
       setLoading(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load orders');
       setLoading(false);
+    } finally {
+      requestInFlight.current = false;
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     let mounted = true;
     const load = async (initial = false) => {
-      if (!mounted) return;
+      if (!mounted || (!initial && (document.hidden || actionInFlight.current))) return;
       await fetchOrders(initial);
     };
     void load(true);
@@ -432,6 +475,7 @@ export default function OrdersPage() {
   }, [fetchOrders]);
 
   const updateOrderStatus = async (order: OrderRecord, action: StatusAction) => {
+    if (actionInFlight.current) return;
     const label = STATUS_ACTION_LABELS[action];
     const prompt = action === 'confirm_payment'
       ? 'Confirm that Sedifex received this payment? This creates an admin audit record and does not complete the order.'
@@ -441,6 +485,7 @@ export default function OrdersPage() {
     const ok = window.confirm(prompt);
     if (!ok) return;
 
+    actionInFlight.current = true;
     setUpdatingOrderId(`${order.id}-${action}`);
     setStatusMessage(null);
     try {
@@ -458,6 +503,7 @@ export default function OrdersPage() {
     } catch (e) {
       setStatusMessage(e instanceof Error ? e.message : 'Unable to update order status.');
     } finally {
+      actionInFlight.current = false;
       setUpdatingOrderId(null);
     }
   };
@@ -488,6 +534,10 @@ export default function OrdersPage() {
   }, [orders, activeBucket, query]);
 
   const revenue = useMemo(() => filtered.reduce((sum, order) => sum + amountNumber(order), 0), [filtered]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
+  const currentPage = Math.min(page, pageCount);
+  const pageOrders = filtered.slice((currentPage - 1) * 50, currentPage * 50);
 
   const downloadCsv = () => {
     const headers = ['Order ID', 'Kind', 'Buyer', 'Phone', 'Customer Email', 'Store', 'Store ID', 'Amount', 'Bucket', 'Status', 'Payment status', 'Payment method', 'Payment provider', 'Payment reference', 'Cash confirmed', 'Settlement status', 'Age', 'Payment Updated At', 'Item Count', 'First Item', 'Source'];
@@ -554,7 +604,8 @@ export default function OrdersPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shown value</p><p className="mt-2 text-2xl font-bold text-slate-950">GHS {revenue.toFixed(2)}</p><p className="mt-1 text-xs text-slate-500">Current filter total</p></div>
       </section>
 
-      {statusMessage ? <p className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-800">{statusMessage}</p> : null}
+      {newOrderMessage ? <p role="status" className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-900">{newOrderMessage} <button type="button" onClick={() => setNewOrderMessage('')} className="ml-3 underline">Dismiss</button></p> : null}
+      {statusMessage ? <p role="status" className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-800">{statusMessage}</p> : null}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -563,7 +614,7 @@ export default function OrdersPage() {
               <button
                 key={bucket}
                 type="button"
-                onClick={() => setActiveBucket(bucket)}
+                onClick={() => { setActiveBucket(bucket); setPage(1); }}
                 className={`rounded-2xl border px-3 py-2 text-left text-xs font-bold transition ${activeBucket === bucket ? 'border-indigo-300 bg-indigo-50 text-indigo-900 ring-4 ring-indigo-100' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
               >
                 <span className="flex items-center gap-2">{bucketIcon(bucket)} {BUCKET_LABELS[bucket]}</span>
@@ -575,20 +626,27 @@ export default function OrdersPage() {
 
         <div className="mt-5 flex items-center rounded-2xl border border-slate-200 px-3 focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-100">
           <Search className="h-4 w-4 text-slate-400" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search order ID, buyer, phone, store, item, type, status" className="w-full border-0 bg-transparent px-3 py-3 text-sm outline-none" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search order ID, buyer, phone, store, item, type, status" className="w-full border-0 bg-transparent px-3 py-3 text-sm outline-none" />
         </div>
 
         {loading ? <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Loading orders…</p> : null}
-        {error ? <p className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{hasLoaded ? 'Refresh failed. Showing the last loaded orders. ' : ''}{error} <button type="button" disabled={refreshing} onClick={() => void fetchOrders(true)} className="ml-3 underline">Retry</button></p> : null}
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+          <span>{filtered.length} matching orders · Page {currentPage} of {pageCount}</span>
+          <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
+          <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+          <button type="button" disabled={refreshing} onClick={() => void fetchOrders(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+          {lastUpdated ? <span>Updated {lastUpdated}</span> : null}
+        </div>
 
-        {!loading && !error ? (
+        {!loading && (!error || hasLoaded) ? (
           <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
             <div className="hidden grid-cols-[1.05fr_0.95fr_0.75fr_0.9fr_0.95fr_0.8fr_1.05fr] gap-4 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 xl:grid">
               <span>Buyer</span><span>Store</span><span>Amount</span><span>Status</span><span>Items</span><span>Timing</span><span>Admin action</span>
             </div>
             <div className="divide-y divide-slate-100">
               {filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">No orders match this filter.</div> : null}
-              {filtered.slice(0, 100).map((order) => {
+              {pageOrders.map((order) => {
                 const bucket = bucketFor(order);
                 const delayed = isDelayed(order);
                 const shownBucket: Bucket = isAcceptedWithoutPayment(order) ? 'payment_issues' : delayed && bucket !== 'problem' && bucket !== 'delivered' ? 'delayed' : bucket;
