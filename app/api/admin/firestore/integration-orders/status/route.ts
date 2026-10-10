@@ -5,7 +5,7 @@ import { adminFirestore } from '@/lib/firebase-admin';
 import { isPaymentConfirmed, paymentAuditPatch, isOnlineCheckoutOrder, isCashLikePayment } from '@/lib/payment-audit';
 import { sendOrderPaidEmail, sendPaymentNotConfirmedEmail } from '@/lib/payment-audit-email';
 import { sendStorePayoutEmail } from '@/lib/store-payout-email';
-import { classifyOrderWorkflow } from '@/lib/order-workflow';
+import { classifyOrderWorkflow, unavailableOrderActionReason } from '@/lib/order-workflow';
 
 type StatusAction =
   | 'confirm_payment'
@@ -326,6 +326,9 @@ export async function POST(req: Request) {
       }, { status: 409 });
     }
 
+    const payoutUnavailable = action === 'mark_store_paid' ? unavailableOrderActionReason(orderData, action, paymentConfirmed) : null;
+    if (payoutUnavailable) return NextResponse.json({ ok: false, error: payoutUnavailable, code: 'payout_unavailable' }, { status: 409 });
+
     if (action === 'mark_store_paid' && !paymentConfirmed) {
       return NextResponse.json({
         ok: false,
@@ -465,9 +468,9 @@ export async function POST(req: Request) {
       label: ACTION_LABELS[action],
       updatedPaths,
       patch: {
-        orderStatus: patch.orderStatus,
-        fulfillmentStatus: patch.fulfillmentStatus,
-        deliveryStatus: patch.deliveryStatus,
+        ...patch,
+        ...auditPatch,
+        ...overridePatch,
       },
     });
   } catch (error) {

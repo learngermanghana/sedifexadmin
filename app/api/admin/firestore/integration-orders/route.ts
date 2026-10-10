@@ -1,3 +1,4 @@
+import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { NextResponse } from 'next/server';
 import { adminFirestore, listFirestoreDocuments } from '@/lib/firebase-admin';
@@ -79,11 +80,13 @@ async function loadStoresById(storeIds: string[]) {
 }
 
 export async function GET(req: Request) {
+  const session = await authorizeAdminRequest(req, { roles: ['super_admin', 'ops_admin', 'support', 'analyst'], scopes: ['platform'] });
+  if (!session) return NextResponse.json({ ok: false, error: 'An authorized platform admin session is required.' }, { status: 403 });
   const url = new URL(req.url);
   const limit = Number(url.searchParams.get('limit') || 50);
 
   try {
-    const data = await listFirestoreDocuments('integrationOrders', limit);
+    const data = await listFirestoreDocuments('integrationOrders', Number.isFinite(limit) ? limit : 100, url.searchParams.get('pageToken') || undefined);
     const orders = data.documents as RawRecord[];
     const storesById = await loadStoresById(orders.map(storeIdFromOrder));
 

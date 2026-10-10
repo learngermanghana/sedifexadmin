@@ -1,9 +1,12 @@
 'use client';
 
+import { createRefreshCoordinator } from '@/lib/refresh-coordinator';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Bell, CheckCircle2, Clock3, Download, PackageCheck, PackageOpen, Search, ShoppingCart, Truck, XCircle } from 'lucide-react';
 import { isAcceptedWithoutPayment, isPaymentConfirmed, paymentAuditLabel, paymentReferenceValue, settlementStatusForOrder } from '@/lib/payment-audit';
-import { classifyOrderWorkflow } from '@/lib/order-workflow';
+import { paymentPresentation, payoutPresentation, recordAmounts, formatRecordAmount } from '@/lib/record-status';
+import { classifyOrderWorkflow, unavailableOrderActionReason } from '@/lib/order-workflow';
 
 type OrderItem = {
   name?: string;
@@ -147,16 +150,11 @@ function lower(value: unknown) {
 }
 
 function money(order: OrderRecord) {
-  const values = [order.finalTotal, order.final_total, order.amountPaid, order.amount, typeof order.amountMinor === 'number' ? order.amountMinor / 100 : undefined];
-  const amount = values.find((value) => typeof value === 'number' && Number.isFinite(value));
-  return typeof amount === 'number' ? `GHS ${amount.toFixed(2)}` : '—';
+  const amounts = recordAmounts(order);
+  return formatRecordAmount(amounts.total, amounts.currency);
 }
 
-function amountNumber(order: OrderRecord) {
-  const values = [order.finalTotal, order.final_total, order.amountPaid, order.amount, typeof order.amountMinor === 'number' ? order.amountMinor / 100 : undefined];
-  const amount = values.find((value) => typeof value === 'number' && Number.isFinite(value));
-  return typeof amount === 'number' ? amount : 0;
-}
+function amountNumber(order: OrderRecord) { return recordAmounts(order).total ?? 0; }
 
 function itemCount(order: OrderRecord) {
   if (typeof order.itemCount === 'number') return order.itemCount;
@@ -222,7 +220,7 @@ function storeLabel(order: OrderRecord) {
 }
 
 function paymentStatusText(order: OrderRecord) {
-  return clean(order.paymentStatus || order.payment_status, 'missing');
+  return paymentPresentation(order).label;
 }
 
 function paymentMethodText(order: OrderRecord) {
@@ -242,11 +240,11 @@ function cashConfirmedText(order: OrderRecord) {
 }
 
 function settlementStatusText(order: OrderRecord) {
-  return settlementStatusForOrder(order) || clean(order.settlementStatus || order.settlement_status, '—');
+  return payoutPresentation({ ...order, settlementStatus: settlementStatusForOrder(order) }).label;
 }
 
 function statusText(order: OrderRecord) {
-  const parts = [order.orderStatus, order.bookingStatus, order.fulfillmentStatus, order.deliveryStatus, order.paymentStatus]
+  const parts = [order.orderStatus, order.bookingStatus, order.fulfillmentStatus, order.deliveryStatus]
     .map((value) => clean(value))
     .filter(Boolean);
   return parts.length ? parts.join(' / ') : 'No status';
@@ -284,7 +282,7 @@ function actionsForOrder(order: OrderRecord): ActionOption[] {
   const paymentConfirmed = isPaymentConfirmed(order);
   const paymentActions = paymentConfirmed ? [] : [PAYMENT_ACTION];
   if (!classifyOrderWorkflow(order).allowsAdminFulfillment) {
-    const payoutActions = paymentConfirmed && lower(settlementStatusForOrder(order)) !== 'paid' ? [STORE_PAYOUT_ACTION] : [];
+    const payoutActions = [STORE_PAYOUT_ACTION];
     return [...paymentActions, ...payoutActions];
   }
 
@@ -392,35 +390,78 @@ export default function OrdersPage() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
+  const [refreshCoordinator] = useState(createRefreshCoordinator);
+  const recordVersion = useRef(0);
+  const actionInFlight = useRef(false);
+  const [newOrderMessage, setNewOrderMessage] = useState('');
+  const [page, setPage] = useState(1);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [filtersReady, setFiltersReady] = useState(false);
+  const filtersHydrated = useRef(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  const fetchOrders = useCallback(async (initial = false) => {
+  useEffect(() => {
+    if (filtersHydrated.current) return;
+    filtersHydrated.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const bucket = params.get('view') as Bucket;
+    if (bucket && bucket in BUCKET_LABELS) setActiveBucket(bucket);
+    setQuery(params.get('q') || '');
+    const requestedPage = Number(params.get('page'));
+    setPage(Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1);
+    setFiltersReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    params.set('view', activeBucket);
+    params.set('page', String(page));
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params}`);
+  }, [query, activeBucket, page, filtersReady]);
+
+  const fetchOrders = useCallback((initial = false) => refreshCoordinator.run(async () => {
+    const version = recordVersion.current;
+    setRefreshing(true);
     try {
-      const res = await fetch('/api/admin/firestore/integration-orders?limit=100', { cache: 'no-store' });
-      const raw = await res.text();
-      let json: { ok?: boolean; data?: OrderRecord[]; error?: string } | null = null;
-      try { json = JSON.parse(raw); } catch {}
-      if (!res.ok || !json?.ok) throw new Error(json?.error || raw || 'Failed to load orders');
-
-      const data: OrderRecord[] = (json.data || []).sort((a, b) => orderTime(b) - orderTime(a));
+      const data: OrderRecord[] = [];
+      let pageToken: string | null = null;
+      do {
+        const params = new URLSearchParams({ limit: '100' });
+        if (pageToken) params.set('pageToken', pageToken);
+        const res = await fetch(`/api/admin/firestore/integration-orders?${params}`, { cache: 'no-store' });
+        const json = await res.json() as { ok?: boolean; data?: OrderRecord[]; error?: string; nextPageToken?: string | null };
+        if (!res.ok || !json.ok) throw new Error(json.error || 'Failed to load orders');
+        data.push(...(json.data || []));
+        pageToken = json.nextPageToken || null;
+      } while (pageToken);
+      if (version !== recordVersion.current) return;
+      data.sort((a, b) => orderTime(b) - orderTime(a));
       if (!initial) {
         const newOrders = data.filter((order) => order.id && !knownIds.current.has(order.id));
-        if (newOrders.length > 0) alert(`🔔 ${newOrders.length} new order${newOrders.length > 1 ? 's' : ''} received.`);
+        if (newOrders.length > 0) setNewOrderMessage(`${newOrders.length} new order${newOrders.length > 1 ? 's' : ''} received.`);
       }
 
       knownIds.current = new Set(data.map((order) => order.id).filter(Boolean));
       setOrders(data);
+      setHasLoaded(true);
+      setLastUpdated(new Date().toLocaleTimeString());
       setError(null);
       setLoading(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load orders');
       setLoading(false);
+    } finally {
+      setRefreshing(false);
     }
-  }, []);
+  }, initial), [refreshCoordinator]);
 
   useEffect(() => {
     let mounted = true;
     const load = async (initial = false) => {
-      if (!mounted) return;
+      if (!mounted || (!initial && (document.hidden || actionInFlight.current))) return;
       await fetchOrders(initial);
     };
     void load(true);
@@ -432,6 +473,7 @@ export default function OrdersPage() {
   }, [fetchOrders]);
 
   const updateOrderStatus = async (order: OrderRecord, action: StatusAction) => {
+    if (actionInFlight.current) return;
     const label = STATUS_ACTION_LABELS[action];
     const prompt = action === 'confirm_payment'
       ? 'Confirm that Sedifex received this payment? This creates an admin audit record and does not complete the order.'
@@ -441,6 +483,10 @@ export default function OrdersPage() {
     const ok = window.confirm(prompt);
     if (!ok) return;
 
+    const unavailable = unavailableOrderActionReason(order, action, isPaymentConfirmed(order));
+    if (unavailable) { setStatusMessage(unavailable); return; }
+    actionInFlight.current = true;
+    recordVersion.current += 1;
     setUpdatingOrderId(`${order.id}-${action}`);
     setStatusMessage(null);
     try {
@@ -450,14 +496,16 @@ export default function OrdersPage() {
         body: JSON.stringify({ orderId: order.id, storeId: order.storeId || '', action }),
       });
       const raw = await res.text();
-      let json: { ok?: boolean; error?: string; label?: string } | null = null;
+      let json: { ok?: boolean; error?: string; label?: string; patch?: Partial<OrderRecord> } | null = null;
       try { json = JSON.parse(raw); } catch {}
       if (!res.ok || !json?.ok) throw new Error(json?.error || raw || 'Unable to update order status.');
+      if (json.patch) setOrders(current => current.map(row => row.id === order.id ? { ...row, ...json.patch } : row));
       setStatusMessage(`Updated ${order.id} to ${json.label || label}.`);
       await fetchOrders(true);
     } catch (e) {
       setStatusMessage(e instanceof Error ? e.message : 'Unable to update order status.');
     } finally {
+      actionInFlight.current = false;
       setUpdatingOrderId(null);
     }
   };
@@ -487,7 +535,18 @@ export default function OrdersPage() {
     });
   }, [orders, activeBucket, query]);
 
-  const revenue = useMemo(() => filtered.reduce((sum, order) => sum + amountNumber(order), 0), [filtered]);
+  const revenue = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const order of filtered) {
+      const amounts = recordAmounts(order);
+      if (amounts.total !== null) totals.set(amounts.currency, (totals.get(amounts.currency) || 0) + amounts.total);
+    }
+    return [...totals].map(([currency, total]) => formatRecordAmount(total, currency)).join(' · ') || 'Not recorded';
+  }, [filtered]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
+  const currentPage = Math.min(page, pageCount);
+  const pageOrders = filtered.slice((currentPage - 1) * 50, currentPage * 50);
 
   const downloadCsv = () => {
     const headers = ['Order ID', 'Kind', 'Buyer', 'Phone', 'Customer Email', 'Store', 'Store ID', 'Amount', 'Bucket', 'Status', 'Payment status', 'Payment method', 'Payment provider', 'Payment reference', 'Cash confirmed', 'Settlement status', 'Age', 'Payment Updated At', 'Item Count', 'First Item', 'Source'];
@@ -551,10 +610,11 @@ export default function OrdersPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orders loaded</p><p className="mt-2 text-2xl font-bold text-slate-950">{orders.length}</p><p className="mt-1 text-xs text-emerald-600">From integrationOrders</p></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order types</p><p className="mt-2 text-sm font-bold text-slate-950">P: {kindStats.product} · S: {kindStats.service} · M: {kindStats.manual}</p><p className="mt-1 text-xs text-slate-500">Product / Service / Manual</p></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delayed</p><p className="mt-2 text-2xl font-bold text-slate-950">{stats.delayed}</p><p className="mt-1 text-xs text-rose-600">Requires follow-up</p></div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shown value</p><p className="mt-2 text-2xl font-bold text-slate-950">GHS {revenue.toFixed(2)}</p><p className="mt-1 text-xs text-slate-500">Current filter total</p></div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shown value</p><p className="mt-2 text-2xl font-bold text-slate-950">{revenue}</p><p className="mt-1 text-xs text-slate-500">Current filter total</p></div>
       </section>
 
-      {statusMessage ? <p className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-800">{statusMessage}</p> : null}
+      {newOrderMessage ? <p role="status" className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-900">{newOrderMessage} <button type="button" onClick={() => setNewOrderMessage('')} className="ml-3 underline">Dismiss</button></p> : null}
+      {statusMessage ? <p role="status" className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-800">{statusMessage}</p> : null}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -563,7 +623,7 @@ export default function OrdersPage() {
               <button
                 key={bucket}
                 type="button"
-                onClick={() => setActiveBucket(bucket)}
+                onClick={() => { setActiveBucket(bucket); setPage(1); }}
                 className={`rounded-2xl border px-3 py-2 text-left text-xs font-bold transition ${activeBucket === bucket ? 'border-indigo-300 bg-indigo-50 text-indigo-900 ring-4 ring-indigo-100' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
               >
                 <span className="flex items-center gap-2">{bucketIcon(bucket)} {BUCKET_LABELS[bucket]}</span>
@@ -575,20 +635,27 @@ export default function OrdersPage() {
 
         <div className="mt-5 flex items-center rounded-2xl border border-slate-200 px-3 focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-100">
           <Search className="h-4 w-4 text-slate-400" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search order ID, buyer, phone, store, item, type, status" className="w-full border-0 bg-transparent px-3 py-3 text-sm outline-none" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search order ID, buyer, phone, store, item, type, status" className="w-full border-0 bg-transparent px-3 py-3 text-sm outline-none" />
         </div>
 
         {loading ? <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Loading orders…</p> : null}
-        {error ? <p className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{hasLoaded ? 'Refresh failed. Showing the last loaded orders. ' : ''}{error} <button type="button" disabled={refreshing} onClick={() => void fetchOrders(true)} className="ml-3 underline">Retry</button></p> : null}
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+          <span>{filtered.length} matching orders · Page {currentPage} of {pageCount}</span>
+          <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
+          <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+          <button type="button" disabled={refreshing} onClick={() => void fetchOrders(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+          {lastUpdated ? <span>Updated {lastUpdated}</span> : null}
+        </div>
 
-        {!loading && !error ? (
+        {!loading && (!error || hasLoaded) ? (
           <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
             <div className="hidden grid-cols-[1.05fr_0.95fr_0.75fr_0.9fr_0.95fr_0.8fr_1.05fr] gap-4 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 xl:grid">
               <span>Buyer</span><span>Store</span><span>Amount</span><span>Status</span><span>Items</span><span>Timing</span><span>Admin action</span>
             </div>
             <div className="divide-y divide-slate-100">
               {filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">No orders match this filter.</div> : null}
-              {filtered.slice(0, 100).map((order) => {
+              {pageOrders.map((order) => {
                 const bucket = bucketFor(order);
                 const delayed = isDelayed(order);
                 const shownBucket: Bucket = isAcceptedWithoutPayment(order) ? 'payment_issues' : delayed && bucket !== 'problem' && bucket !== 'delivered' ? 'delayed' : bucket;
@@ -596,6 +663,7 @@ export default function OrdersPage() {
                 const kind = orderKind(order);
                 const actionOptions = actionsForOrder(order);
                 const workflow = classifyOrderWorkflow(order);
+                const amounts = recordAmounts(order);
                 return (
                   <div key={order.id} className="grid gap-4 px-4 py-4 text-sm xl:grid-cols-[1.05fr_0.95fr_0.75fr_0.9fr_0.95fr_0.8fr_1.05fr] xl:items-center">
                     <div className="min-w-0">
@@ -611,15 +679,15 @@ export default function OrdersPage() {
                       <span className={`ml-1 mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${workflow.allowsAdminFulfillment ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{workflow.label}</span>
                     </div>
                     <div>
-                      <p className="font-bold text-slate-950">{money(order)}</p>
+                      <p className="font-bold text-slate-950">{money(order)}</p><p className="text-xs text-slate-500">Received: {formatRecordAmount(amounts.received, amounts.currency)}<br />Balance: {formatRecordAmount(amounts.outstanding, amounts.currency)}</p>
                       <p className="text-xs text-slate-500">{itemCount(order)} item(s)</p>
                       <div className="mt-2 space-y-1 text-[11px] text-slate-500">
-                        <p><span className="font-semibold text-slate-700">Pay:</span> {paymentStatusText(order)}</p>
+                        <p><span className="font-semibold text-slate-700">Customer payment:</span> {paymentStatusText(order)}</p>
                         <p><span className="font-semibold text-slate-700">Method:</span> {paymentMethodText(order)}</p>
                         <p><span className="font-semibold text-slate-700">Provider:</span> {paymentProviderText(order)}</p>
                         <p className="break-all"><span className="font-semibold text-slate-700">Ref:</span> {paymentReferenceText(order)}</p>
                         <p><span className="font-semibold text-slate-700">Cash:</span> {cashConfirmedText(order)}</p>
-                        <p><span className="font-semibold text-slate-700">Settlement:</span> {settlementStatusText(order)}</p>
+                        <p><span className="font-semibold text-slate-700">Store payout:</span> {settlementStatusText(order)}</p>
                       </div>
                     </div>
                     <div>
@@ -659,11 +727,13 @@ export default function OrdersPage() {
                         <button
                           key={`${order.id}-${action.id}`}
                           type="button"
-                          disabled={Boolean(updatingOrderId)}
+                          disabled={Boolean(updatingOrderId) || Boolean(unavailableOrderActionReason(order, action.id, isPaymentConfirmed(order)))}
+                          title={unavailableOrderActionReason(order, action.id, isPaymentConfirmed(order)) || undefined}
                           onClick={() => updateOrderStatus(order, action.id)}
                           className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${actionToneClass(action.tone)}`}
                         >
                           {updatingOrderId === `${order.id}-${action.id}` ? 'Updating…' : action.label}
+                          {unavailableOrderActionReason(order, action.id, isPaymentConfirmed(order)) ? <span className="block text-[11px] font-normal">{unavailableOrderActionReason(order, action.id, isPaymentConfirmed(order))}</span> : null}
                         </button>
                         ))}
                         {actionOptions.length === 0 ? <span className="text-[11px] font-semibold text-emerald-700">{workflow.allowsAdminFulfillment ? 'Payment audit complete' : 'Payment and payout complete'}</span> : null}
