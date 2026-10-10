@@ -211,3 +211,14 @@ export async function listAllFirestoreDocuments(collectionPath: string) {
   } while (pageToken);
   return { documents };
 }
+
+/** Fetch only outbox records associated with the visible booking references. */
+export async function listBookingNotifications(references: string[]) {
+  const unique = [...new Set(references.filter(Boolean))];
+  const pages = await Promise.all(Array.from({ length: Math.ceil(unique.length / 30) }, async (_, index) => {
+    const snapshot = await firestore().collection('notification_outbox')
+      .where('reference', 'in', unique.slice(index * 30, (index + 1) * 30)).get();
+    return snapshot.docs.map(normalizeDocument);
+  }));
+  return { documents: pages.flat() };
+}
