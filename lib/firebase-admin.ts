@@ -1,6 +1,6 @@
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldPath, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 
 type FirebaseEnvStatus = {
@@ -158,16 +158,19 @@ function normalizeDocument(snapshot: FirebaseFirestore.DocumentSnapshot) {
 }
 
 function safeReadLimit(limit: number) {
-  return Math.min(Math.max(limit, 1), 1000);
+  return Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), 1000) : 25;
 }
 
-export async function listFirestoreDocuments(collectionPath: string, limit = 25) {
+export async function listFirestoreDocuments(collectionPath: string, limit = 25, pageToken?: string) {
   const safeLimit = safeReadLimit(limit);
-  const snapshot = await firestore().collection(collectionPath).limit(safeLimit).get();
+  let query = firestore().collection(collectionPath).orderBy(FieldPath.documentId()).limit(safeLimit + 1);
+  if (pageToken) query = query.startAfter(pageToken);
+  const snapshot = await query.get();
+  const docs = snapshot.docs.slice(0, safeLimit);
 
   return {
-    documents: snapshot.docs.map(normalizeDocument),
-    nextPageToken: null,
+    documents: docs.map(normalizeDocument),
+    nextPageToken: snapshot.docs.length > safeLimit ? docs[docs.length - 1].id : null,
   };
 }
 
@@ -196,4 +199,15 @@ export async function setFirestoreDocument(documentPath: string, data: Record<st
   await ref.set(data, { merge: true });
   const snapshot = await ref.get();
   return normalizeDocument(snapshot);
+}
+
+export async function listAllFirestoreDocuments(collectionPath: string) {
+  const documents: Awaited<ReturnType<typeof listFirestoreDocuments>>['documents'] = [];
+  let pageToken: string | undefined;
+  do {
+    const page = await listFirestoreDocuments(collectionPath, 1000, pageToken);
+    documents.push(...page.documents);
+    pageToken = page.nextPageToken ?? undefined;
+  } while (pageToken);
+  return { documents };
 }
