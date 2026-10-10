@@ -1,8 +1,9 @@
+import { bookingPresentation, paymentPresentation, payoutPresentation, recordAmounts, formatRecordAmount } from '../../../lib/record-status';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { CalendarDays, CreditCard, Search } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '../../../components/admin/ui';
-import { getFirebaseEnvStatus, listAllFirestoreDocuments } from '../../../lib/firebase-admin';
+import { getFirebaseEnvStatus, listAllFirestoreDocuments, listBookingNotifications } from '../../../lib/firebase-admin';
 import { getAuthenticatedAdminSession } from '../../../lib/admin-session-server';
 
 export const dynamic = 'force-dynamic';
@@ -62,7 +63,7 @@ function paymentStatus(row: Doc) {
 }
 
 function isPaid(row: Doc) {
-  return ['paid', 'confirmed', 'success', 'succeeded', 'captured', 'completed'].includes(paymentStatus(row));
+  return paymentPresentation(row).state === 'paid';
 }
 
 function isPaymentConfirmed(row: Doc) {
@@ -108,28 +109,18 @@ function schedule(row: Doc) {
 }
 
 function paymentLabel(row: Doc) {
-  const status = paymentStatus(row);
-  if (isPaid(row) && isPaymentConfirmed(row)) return 'Paid · confirmed';
-  if (status === 'checkout_created') return 'Checkout created';
-  if (['failed', 'declined', 'cancelled', 'canceled'].includes(status)) return 'Payment failed';
-  if (status === 'awaiting_verification' || status === 'manual_review') return 'Needs payment review';
-  return status.replace(/_/g, ' ');
+  const payment = paymentPresentation(row);
+  if (payment.state === 'paid' && !isPaymentConfirmed(row)) return 'Paid · confirmation not recorded';
+  return payment.label;
 }
 
 function paymentTone(row: Doc): 'green' | 'yellow' | 'red' | 'blue' | 'slate' {
-  const status = paymentStatus(row);
-  if (isPaid(row) && isPaymentConfirmed(row)) return 'green';
-  if (['failed', 'declined', 'cancelled', 'canceled'].includes(status)) return 'red';
-  if (status === 'checkout_created') return 'blue';
-  if (status === 'awaiting_verification' || status === 'manual_review') return 'yellow';
-  return 'slate';
+  const payment = paymentPresentation(row);
+  if (payment.state === 'paid' && !isPaymentConfirmed(row)) return 'yellow';
+  return payment.tone === 'success' ? 'green' : payment.tone === 'danger' ? 'red' : payment.tone === 'warning' ? 'yellow' : 'slate';
 }
 
-function bookingLabel(row: Doc) {
-  const status = bookingStatus(row);
-  if (status === 'pending_approval') return 'Needs confirmation';
-  return status.replace(/_/g, ' ');
-}
+function bookingLabel(row: Doc) { return bookingPresentation(row).label; }
 
 function notificationSummary(rows: Doc[], bookingReference: string) {
   const matching = rows
@@ -168,10 +159,8 @@ async function loadData() {
   if (!getFirebaseEnvStatus().ready) return { bookings: [] as Doc[], notifications: [] as Doc[], warnings: [] as string[], notificationsAvailable: false, stores: new Map<string, string>(), error: 'Firebase environment variables are not ready.' };
   try {
     const warnings: string[] = [];
-    let notificationsAvailable = true;
-    const [bookingsResult, notificationsResult, storesResult, settingsResult] = await Promise.all([
+    const [bookingsResult, storesResult, settingsResult] = await Promise.all([
       listAllFirestoreDocuments('integrationBookings'),
-      listAllFirestoreDocuments('notification_outbox').catch(() => { notificationsAvailable = false; warnings.push('Notification status could not be loaded. Refresh to retry.'); return { documents: [] as Doc[] }; }),
       listAllFirestoreDocuments('stores').catch(() => { warnings.push('Some workspace names could not be loaded. Showing workspace IDs.'); return { documents: [] as Doc[] }; }),
       listAllFirestoreDocuments('storeSettings').catch(() => { warnings.push('Some workspace names could not be loaded. Showing workspace IDs.'); return { documents: [] as Doc[] }; }),
     ]);
@@ -181,7 +170,7 @@ async function loadData() {
       if (!id) return;
       stores.set(id, text(store.displayName ?? store.storeName ?? store.businessName ?? store.name, id));
     });
-    return { bookings: bookingsResult.documents as Doc[], notifications: notificationsResult.documents as Doc[], warnings: [...new Set(warnings)], notificationsAvailable, stores, error: null as string | null };
+    return { bookings: bookingsResult.documents as Doc[], notifications: [] as Doc[], warnings: [...new Set(warnings)], notificationsAvailable: true, stores, error: null as string | null };
   } catch (error) {
     return { bookings: [] as Doc[], notifications: [] as Doc[], warnings: [] as string[], notificationsAvailable: false, stores: new Map<string, string>(), error: error instanceof Error ? error.message : 'Unable to load bookings.' };
   }
@@ -205,7 +194,7 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
       ].join(' ').toLowerCase().includes(query))
     : all;
 
-  const attention = (row: Doc) => bookingStatus(row) === 'pending_approval' || ['awaiting_verification', 'manual_review'].includes(paymentStatus(row));
+  const attention = (row: Doc) => bookingPresentation(row).state === 'pending' || ['awaiting_verification', 'unknown', 'failed'].includes(paymentPresentation(row).state) || (isPaid(row) && !isPaymentConfirmed(row));
   const filtered = searched.filter((row) => {
     if (view === 'paid') return isPaid(row) && isPaymentConfirmed(row);
     if (view === 'checkout') return paymentStatus(row) === 'checkout_created';
@@ -213,6 +202,20 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
     return true;
   });
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
+  const requestedPage = Number(params.page);
+  const page = Math.min(pageCount, Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1);
+  const pageHref = (target: number) => `/admin/bookings?${new URLSearchParams({ view, q: params.q || '', page: String(target) })}`;
+  const visibleBookings = filtered.slice((page - 1) * 50, page * 50);
+  if (!data.error) {
+    try {
+      const notifications = await listBookingNotifications(visibleBookings.map(reference));
+      data.notifications = notifications.documents as Doc[];
+    } catch {
+      data.notificationsAvailable = false;
+      data.warnings.push('Notification status could not be loaded. Refresh to retry.');
+    }
+  }
   const notificationsByReference = new Map<string, Doc[]>();
   for (const notification of data.notifications) {
     const key = text(notification.reference);
@@ -220,10 +223,6 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
     records.push(notification);
     notificationsByReference.set(key, records);
   }
-  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
-  const requestedPage = Number(params.page);
-  const page = Math.min(pageCount, Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1);
-  const pageHref = (target: number) => `/admin/bookings?${new URLSearchParams({ view, q: params.q || '', page: String(target) })}`;
   const stats = [
     { label: 'Needs confirmation', value: String(all.filter(attention).length), delta: 'Booking or payment review' },
     { label: 'Checkout created', value: String(all.filter((row) => paymentStatus(row) === 'checkout_created').length), delta: 'Not yet Paystack-confirmed' },
@@ -297,8 +296,10 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {filtered.length ? filtered.slice((page - 1) * 50, page * 50).map((row) => {
+              {filtered.length ? visibleBookings.map((row) => {
                 const owner = storeId(row);
+                const amounts = recordAmounts(row);
+                const payout = payoutPresentation(row);
                 const emailState = data.notificationsAvailable ? notificationSummary(notificationsByReference.get(reference(row)) || [], reference(row)) : { label: 'Status unavailable', tone: 'yellow' as const, detail: 'Notification records could not be loaded. Refresh to retry.' };
                 return (
                   <tr key={row.id || reference(row)}>
@@ -316,8 +317,8 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
                       <p className="text-xs text-slate-500">{customerContact(row)}</p>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{schedule(row)}</td>
-                    <td className="px-4 py-3 text-right font-semibold">GHS {amount(row).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3"><StatusBadge tone={paymentTone(row)}>{paymentLabel(row)}</StatusBadge></td>
+                    <td className="px-4 py-3 text-right font-semibold">{formatRecordAmount(amounts.total, amounts.currency)}</td>
+                    <td className="px-4 py-3"><StatusBadge tone={paymentTone(row)}>{paymentLabel(row)}</StatusBadge><p className="mt-1 text-xs text-slate-500">Received: {formatRecordAmount(amounts.received, amounts.currency)} · Balance: {formatRecordAmount(amounts.outstanding, amounts.currency)}</p><p className="mt-1 text-xs text-slate-500">Payout: {payout.label}</p></td>
                     <td className="px-4 py-3">
                       <StatusBadge tone={emailState.tone}>{emailState.label}</StatusBadge>
                       <p className="mt-1 max-w-56 text-xs text-slate-500">{emailState.detail}</p>
