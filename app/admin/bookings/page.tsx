@@ -1,14 +1,15 @@
+import { bookingPresentation, paymentPresentation, payoutPresentation, recordAmounts, formatRecordAmount } from '../../../lib/record-status';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { CalendarDays, CreditCard, Search } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '../../../components/admin/ui';
-import { getFirebaseEnvStatus, listFirestoreDocuments } from '../../../lib/firebase-admin';
+import { getFirebaseEnvStatus, listAllFirestoreDocuments, listBookingNotifications } from '../../../lib/firebase-admin';
 import { getAuthenticatedAdminSession } from '../../../lib/admin-session-server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-type SearchParams = Promise<{ q?: string; view?: string }>;
+type SearchParams = Promise<{ q?: string; view?: string; page?: string }>;
 type Doc = Record<string, unknown> & { id?: string; path?: string; createTime?: string | null; updateTime?: string | null };
 
 function record(value: unknown): Record<string, unknown> {
@@ -62,7 +63,7 @@ function paymentStatus(row: Doc) {
 }
 
 function isPaid(row: Doc) {
-  return ['paid', 'confirmed', 'success', 'succeeded', 'captured', 'completed'].includes(paymentStatus(row));
+  return paymentPresentation(row).state === 'paid';
 }
 
 function isPaymentConfirmed(row: Doc) {
@@ -108,28 +109,18 @@ function schedule(row: Doc) {
 }
 
 function paymentLabel(row: Doc) {
-  const status = paymentStatus(row);
-  if (isPaid(row) && isPaymentConfirmed(row)) return 'Paid · confirmed';
-  if (status === 'checkout_created') return 'Checkout created';
-  if (['failed', 'declined', 'cancelled', 'canceled'].includes(status)) return 'Payment failed';
-  if (status === 'awaiting_verification' || status === 'manual_review') return 'Needs payment review';
-  return status.replace(/_/g, ' ');
+  const payment = paymentPresentation(row);
+  if (payment.state === 'paid' && !isPaymentConfirmed(row)) return 'Paid · confirmation not recorded';
+  return payment.label;
 }
 
 function paymentTone(row: Doc): 'green' | 'yellow' | 'red' | 'blue' | 'slate' {
-  const status = paymentStatus(row);
-  if (isPaid(row) && isPaymentConfirmed(row)) return 'green';
-  if (['failed', 'declined', 'cancelled', 'canceled'].includes(status)) return 'red';
-  if (status === 'checkout_created') return 'blue';
-  if (status === 'awaiting_verification' || status === 'manual_review') return 'yellow';
-  return 'slate';
+  const payment = paymentPresentation(row);
+  if (payment.state === 'paid' && !isPaymentConfirmed(row)) return 'yellow';
+  return payment.tone === 'success' ? 'green' : payment.tone === 'danger' ? 'red' : payment.tone === 'warning' ? 'yellow' : 'slate';
 }
 
-function bookingLabel(row: Doc) {
-  const status = bookingStatus(row);
-  if (status === 'pending_approval') return 'Needs confirmation';
-  return status.replace(/_/g, ' ');
-}
+function bookingLabel(row: Doc) { return bookingPresentation(row).label; }
 
 function notificationSummary(rows: Doc[], bookingReference: string) {
   const matching = rows
@@ -165,13 +156,13 @@ function notificationSummary(rows: Doc[], bookingReference: string) {
 }
 
 async function loadData() {
-  if (!getFirebaseEnvStatus().ready) return { bookings: [] as Doc[], notifications: [] as Doc[], stores: new Map<string, string>(), error: 'Firebase environment variables are not ready.' };
+  if (!getFirebaseEnvStatus().ready) return { bookings: [] as Doc[], notifications: [] as Doc[], warnings: [] as string[], notificationsAvailable: false, stores: new Map<string, string>(), error: 'Firebase environment variables are not ready.' };
   try {
-    const [bookingsResult, notificationsResult, storesResult, settingsResult] = await Promise.all([
-      listFirestoreDocuments('integrationBookings', 1000),
-      listFirestoreDocuments('notification_outbox', 1000).catch(() => ({ documents: [] as Doc[] })),
-      listFirestoreDocuments('stores', 500).catch(() => ({ documents: [] as Doc[] })),
-      listFirestoreDocuments('storeSettings', 500).catch(() => ({ documents: [] as Doc[] })),
+    const warnings: string[] = [];
+    const [bookingsResult, storesResult, settingsResult] = await Promise.all([
+      listAllFirestoreDocuments('integrationBookings'),
+      listAllFirestoreDocuments('stores').catch(() => { warnings.push('Some workspace names could not be loaded. Showing workspace IDs.'); return { documents: [] as Doc[] }; }),
+      listAllFirestoreDocuments('storeSettings').catch(() => { warnings.push('Some workspace names could not be loaded. Showing workspace IDs.'); return { documents: [] as Doc[] }; }),
     ]);
     const stores = new Map<string, string>();
     [...(settingsResult.documents as Doc[]), ...(storesResult.documents as Doc[])].forEach((store) => {
@@ -179,9 +170,9 @@ async function loadData() {
       if (!id) return;
       stores.set(id, text(store.displayName ?? store.storeName ?? store.businessName ?? store.name, id));
     });
-    return { bookings: bookingsResult.documents as Doc[], notifications: notificationsResult.documents as Doc[], stores, error: null as string | null };
+    return { bookings: bookingsResult.documents as Doc[], notifications: [] as Doc[], warnings: [...new Set(warnings)], notificationsAvailable: true, stores, error: null as string | null };
   } catch (error) {
-    return { bookings: [] as Doc[], notifications: [] as Doc[], stores: new Map<string, string>(), error: error instanceof Error ? error.message : 'Unable to load bookings.' };
+    return { bookings: [] as Doc[], notifications: [] as Doc[], warnings: [] as string[], notificationsAvailable: false, stores: new Map<string, string>(), error: error instanceof Error ? error.message : 'Unable to load bookings.' };
   }
 }
 
@@ -203,7 +194,7 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
       ].join(' ').toLowerCase().includes(query))
     : all;
 
-  const attention = (row: Doc) => bookingStatus(row) === 'pending_approval' || ['awaiting_verification', 'manual_review'].includes(paymentStatus(row));
+  const attention = (row: Doc) => bookingPresentation(row).state === 'pending' || ['awaiting_verification', 'unknown', 'failed'].includes(paymentPresentation(row).state) || (isPaid(row) && !isPaymentConfirmed(row));
   const filtered = searched.filter((row) => {
     if (view === 'paid') return isPaid(row) && isPaymentConfirmed(row);
     if (view === 'checkout') return paymentStatus(row) === 'checkout_created';
@@ -211,6 +202,27 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
     return true;
   });
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
+  const requestedPage = Number(params.page);
+  const page = Math.min(pageCount, Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1);
+  const pageHref = (target: number) => `/admin/bookings?${new URLSearchParams({ view, q: params.q || '', page: String(target) })}`;
+  const visibleBookings = filtered.slice((page - 1) * 50, page * 50);
+  if (!data.error) {
+    try {
+      const notifications = await listBookingNotifications(visibleBookings.map(reference));
+      data.notifications = notifications.documents as Doc[];
+    } catch {
+      data.notificationsAvailable = false;
+      data.warnings.push('Notification status could not be loaded. Refresh to retry.');
+    }
+  }
+  const notificationsByReference = new Map<string, Doc[]>();
+  for (const notification of data.notifications) {
+    const key = text(notification.reference);
+    const records = notificationsByReference.get(key) || [];
+    records.push(notification);
+    notificationsByReference.set(key, records);
+  }
   const stats = [
     { label: 'Needs confirmation', value: String(all.filter(attention).length), delta: 'Booking or payment review' },
     { label: 'Checkout created', value: String(all.filter((row) => paymentStatus(row) === 'checkout_created').length), delta: 'Not yet Paystack-confirmed' },
@@ -239,6 +251,7 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
 
       {data.error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{data.error}</div> : null}
 
+      {data.warnings.map(warning => <p key={warning} role="alert" className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">{warning}</p>)}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
       </section>
@@ -261,6 +274,12 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
           ))}
         </div>
 
+        <nav aria-label="Booking pages" className="mb-4 flex flex-wrap gap-4 text-sm">
+          <span>{filtered.length} matching bookings · Page {page} of {pageCount}</span>
+          {page > 1 ? <Link href={pageHref(page - 1)}>Previous</Link> : null}
+          {page < pageCount ? <Link href={pageHref(page + 1)}>Next</Link> : null}
+          <a href={pageHref(page)}>Refresh</a>
+        </nav>
         <div className="overflow-x-auto rounded-2xl border border-slate-200">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -277,9 +296,11 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {filtered.length ? filtered.slice(0, 200).map((row) => {
+              {filtered.length ? visibleBookings.map((row) => {
                 const owner = storeId(row);
-                const emailState = notificationSummary(data.notifications, reference(row));
+                const amounts = recordAmounts(row);
+                const payout = payoutPresentation(row);
+                const emailState = data.notificationsAvailable ? notificationSummary(notificationsByReference.get(reference(row)) || [], reference(row)) : { label: 'Status unavailable', tone: 'yellow' as const, detail: 'Notification records could not be loaded. Refresh to retry.' };
                 return (
                   <tr key={row.id || reference(row)}>
                     <td className="px-4 py-3 text-xs text-slate-500">{formatDate(createdAt(row))}</td>
@@ -296,8 +317,8 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
                       <p className="text-xs text-slate-500">{customerContact(row)}</p>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{schedule(row)}</td>
-                    <td className="px-4 py-3 text-right font-semibold">GHS {amount(row).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3"><StatusBadge tone={paymentTone(row)}>{paymentLabel(row)}</StatusBadge></td>
+                    <td className="px-4 py-3 text-right font-semibold">{formatRecordAmount(amounts.total, amounts.currency)}</td>
+                    <td className="px-4 py-3"><StatusBadge tone={paymentTone(row)}>{paymentLabel(row)}</StatusBadge><p className="mt-1 text-xs text-slate-500">Received: {formatRecordAmount(amounts.received, amounts.currency)} · Balance: {formatRecordAmount(amounts.outstanding, amounts.currency)}</p><p className="mt-1 text-xs text-slate-500">Payout: {payout.label}</p></td>
                     <td className="px-4 py-3">
                       <StatusBadge tone={emailState.tone}>{emailState.label}</StatusBadge>
                       <p className="mt-1 max-w-56 text-xs text-slate-500">{emailState.detail}</p>

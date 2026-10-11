@@ -1,3 +1,4 @@
+import { payoutPresentation } from './record-status';
 export type OrderWorkflowRecord = {
   source?: unknown;
   sourceChannel?: unknown;
@@ -74,4 +75,21 @@ export function classifyOrderWorkflow(order: OrderWorkflowRecord): OrderWorkflow
     description: 'Sedifex Admin confirms payment and records the store payout. Booking, follow-up, delivery, and completion are handled in the store UI.',
     allowsAdminFulfillment: false,
   };
+}
+
+/** Explain unavailable actions without treating payment or payout as fulfillment. */
+export function unavailableOrderActionReason(order: OrderWorkflowRecord & Record<string, unknown>, action: string, paymentConfirmed: boolean) {
+  const workflow = classifyOrderWorkflow(order);
+  if (action === 'confirm_payment') return paymentConfirmed ? 'Payment receipt is already confirmed.' : null;
+  if (action === 'mark_store_paid') {
+    if (workflow.allowsAdminFulfillment) return 'Manage this payout on the Settlements page.';
+    const settlement = payoutPresentation(order).state;
+    if (settlement === 'paid') return 'The store payout is already recorded.';
+    if (settlement === 'not_applicable') return 'Payment goes directly to the store; no platform payout is required.';
+    if (!paymentConfirmed) return 'Confirm payment received before recording the store payout.';
+    return null;
+  }
+  if (!workflow.allowsAdminFulfillment) return 'Booking, delivery, and completion are managed in the store workspace.';
+  if (['delivered', 'service_completed', 'complete_manual'].includes(action) && !paymentConfirmed) return 'Confirm payment received before marking this order completed.';
+  return null;
 }

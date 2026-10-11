@@ -1,7 +1,8 @@
+import { paymentPresentation } from './record-status';
 export type PaymentAuditOrder = Record<string, unknown>;
 
-const CONFIRMED_PAYMENT_STATUSES = new Set(['success', 'successful', 'paid', 'confirmed', 'captured', 'paid_cash']);
-const ONLINE_CONFIRMED_PAYMENT_STATUSES = new Set(['success', 'successful', 'paid', 'confirmed', 'captured']);
+const CONFIRMED_PAYMENT_STATUSES = new Set(['success', 'successful', 'paid', 'confirmed', 'captured', 'paid_cash', 'settled', 'succeeded', 'completed', 'complete']);
+const ONLINE_CONFIRMED_PAYMENT_STATUSES = new Set(['success', 'successful', 'paid', 'confirmed', 'captured', 'settled', 'succeeded', 'completed', 'complete']);
 const PENDING_PAYMENT_STATUSES = new Set(['pending', 'awaiting', 'checkout', 'unpaid', 'initiated', '']);
 const FULFILLMENT_PROGRESS_STATUSES = new Set([
   'accepted',
@@ -35,17 +36,17 @@ function clean(value: unknown) {
 
 export function normalizedPaymentStatus(order: PaymentAuditOrder) {
   const payment = record(order.payment);
-  return clean(order.paymentStatus ?? order.payment_status ?? order.statusPayment ?? payment.status).toLowerCase().replace(/\s+/g, '_');
+  return clean(order.paymentStatus ?? order.payment_status ?? order.statusPayment ?? payment.status).toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 export function paymentMethodValue(order: PaymentAuditOrder) {
   const payment = record(order.payment);
-  return clean(order.paymentMethod ?? order.payment_method ?? order.paymentCollectionMode ?? order.payment_collection_mode ?? payment.method).toLowerCase().replace(/\s+/g, '_');
+  return clean(order.paymentMethod ?? order.payment_method ?? order.paymentCollectionMode ?? order.payment_collection_mode ?? payment.method).toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 export function paymentProviderValue(order: PaymentAuditOrder) {
   const payment = record(order.payment);
-  return clean(order.paymentProvider ?? order.payment_provider ?? order.provider ?? payment.provider).toLowerCase().replace(/\s+/g, '_');
+  return clean(order.paymentProvider ?? order.payment_provider ?? order.provider ?? payment.provider).toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 export function paymentReferenceValue(order: PaymentAuditOrder) {
@@ -97,6 +98,7 @@ export function isOnlinePaymentConfirmed(order: PaymentAuditOrder) {
 }
 
 export function isPaymentConfirmed(order: PaymentAuditOrder) {
+  if (['failed', 'refunded', 'cancelled'].includes(paymentPresentation(order).state)) return false;
   if (order.paymentReceiptConfirmed === true || order.payment_receipt_confirmed === true) return true;
   if (isCashConfirmed(order)) return true;
   if (isOnlinePaymentConfirmed(order)) return true;
@@ -120,7 +122,7 @@ export function hasFulfillmentProgress(order: PaymentAuditOrder) {
     order.deliveryStatus,
     order.delivery_status,
     order.adminLastStatusAction,
-  ].map((value) => clean(value).toLowerCase().replace(/\s+/g, '_'));
+  ].map((value) => clean(value).toLowerCase().replace(/[\s-]+/g, '_'));
 
   return statuses.some((status) => FULFILLMENT_PROGRESS_STATUSES.has(status)) || Boolean(order.receivedAt || order.deliveredAt || order.completedAt);
 }
