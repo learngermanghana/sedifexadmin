@@ -65,3 +65,48 @@ export function sanitizeAdScript(value: unknown, fallback: VideoAdScript): Video
     scenes: scenes.length === 4 && scenes.every((scene) => scene.title) ? scenes : fallback.scenes,
   };
 }
+
+/**
+ * No AI key is needed for a usable result. Pull only explicit marketing details
+ * from the user's prompt; never make up prices, discounts or a business name.
+ */
+export function promptToAdInput(value: unknown, preferences?: Partial<VideoAdInput>): VideoAdInput {
+  const prompt = safeText(value, 1100);
+  const normalized = prompt.replace(/\s+/g, ' ').trim();
+  const business = normalized.match(/\b(?:called|named|brand(?:ed)?|business (?:is|called)|shop (?:is|called))\s+["“]?([^.!?,;\n]{2,55})/i);
+  const price = normalized.match(/(?:GH₵|GHS|₵|\$|USD)\s*[\d,.]+(?:\s*(?:each|only|per\s+item))?/i);
+  const seconds = normalized.match(/\b(12|15|20)\s*(?:second|sec|s)\b/i);
+  const requestedStyle: AdStyle = /luxur|premium|elegan|classy/i.test(normalized) ? 'luxury'
+    : /fresh|bright|clean|natural|wellness/i.test(normalized) ? 'fresh' : 'bold';
+  const askedCta = normalized.match(/\b(?:say|end with|call to action|cta)\s*[:“"]?\s*(order (?:now|today|on whatsapp)|shop now|book now|visit (?:our )?(?:website|store)|contact us|sign up now)/i);
+  // The whole prompt remains the truthful creative brief if product extraction is unclear.
+  const product = normalized.slice(0, 110) || 'Your product or service';
+  const input = normalizeAdInput({
+    brand: business?.[1]?.replace(/\b(?:and|with|selling|offering)\b.*$/i, '').trim() || 'Your Business',
+    product,
+    price: price?.[0] || '',
+    callToAction: askedCta?.[1] || (/whatsapp/i.test(normalized) ? 'Message us on WhatsApp' : 'Learn more'),
+    duration: seconds?.[1] ? Number(seconds[1]) : 15,
+    style: requestedStyle,
+  });
+  return { ...input, ...preferences, brand: preferences?.brand?.trim() || input.brand,
+    product: preferences?.product?.trim() || input.product,
+    price: preferences?.price?.trim() || input.price };
+}
+
+export function templateScriptForPrompt(prompt: string, input: VideoAdInput): VideoAdScript {
+  const fallback = templateScript(input);
+  const cleanPrompt = safeText(prompt, 500);
+  const headline = input.product.length > 70 ? input.product.slice(0, 68).replace(/\s+\S*$/, '') + '…' : input.product;
+  return {
+    ...fallback,
+    headline,
+    caption: cleanPrompt ? `${cleanPrompt}\n\n${input.callToAction}.` : fallback.caption,
+    scenes: [
+      { title: input.brand === 'Your Business' ? 'Your next big moment' : input.brand, subtitle: 'Something for you' },
+      { title: headline, subtitle: 'Take a closer look' },
+      { title: input.price || 'Available now', subtitle: 'Made for you' },
+      { title: input.callToAction, subtitle: input.brand === 'Your Business' ? 'Start today' : input.brand },
+    ],
+  };
+}
