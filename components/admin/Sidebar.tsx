@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { ComponentType } from 'react';
 import { usePathname } from 'next/navigation';
+import { useAdminContext } from './admin-context';
 import {
   Activity,
   BarChart3,
@@ -67,6 +68,8 @@ const groups: { label: string; items: Item[] }[] = [
 
 export default function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boolean; onMobileClose: () => void }) {
   const pathname = usePathname();
+  const { role, scope } = useAdminContext();
+  const mayUseStudio = scope === 'platform' && (role === 'super_admin' || role === 'ops_admin');
   const nav = (
     <div className="flex h-full flex-col bg-slate-950 text-slate-200">
       <div className="flex items-center justify-between border-b border-slate-800 px-5 py-5">
@@ -83,7 +86,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boo
           <div key={group.label}>
             <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>
             <div className="space-y-1">
-              {group.items.map((item) => {
+              {group.items.filter((item) => item.href !== '/admin/ai-studio' || mayUseStudio).map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(`${item.href}/`));
                 return (
