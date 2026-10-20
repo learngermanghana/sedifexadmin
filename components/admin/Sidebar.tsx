@@ -3,15 +3,18 @@
 import Link from 'next/link';
 import type { ComponentType } from 'react';
 import { usePathname } from 'next/navigation';
+import { useAdminContext } from './admin-context';
 import {
   Activity,
   BarChart3,
+  CreditCard,
   CalendarDays,
   ChevronRight,
   CircleAlert,
   House,
   Mail,
   Package,
+  Clapperboard,
   PlusCircle,
   ShoppingBag,
   Store,
@@ -24,33 +27,49 @@ import {
 type Item = { href: string; label: string; icon: ComponentType<{ className?: string }> };
 
 const groups: { label: string; items: Item[] }[] = [
-  { label: 'Overview', items: [{ href: '/admin', label: 'Command Center', icon: House }] },
   {
-    label: 'Clients',
+    label: 'Dashboard',
     items: [
-      { href: '/admin/stores', label: 'Client Workspaces', icon: Store },
-      { href: '/admin/store-activity', label: 'Client Activity', icon: Activity },
-      { href: '/admin/client-items', label: 'Add Client Item', icon: PlusCircle },
-      { href: '/admin/bookings', label: 'Bookings', icon: CalendarDays },
-      { href: '/admin/customers', label: 'Customers', icon: Users },
-      { href: '/admin/products', label: 'Catalog Review', icon: Package },
-      { href: '/admin/orders', label: 'Orders', icon: ShoppingBag },
-      { href: '/admin/settlements', label: 'Settlements', icon: WalletCards },
-      { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
+      { href: '/admin', label: 'Overview', icon: House },
+      { href: '/admin/analytics', label: 'Business Analytics', icon: BarChart3 },
     ],
   },
   {
-    label: 'Operations',
+    label: 'Businesses',
     items: [
-      { href: '/admin/marketing', label: 'Marketing Center', icon: Mail },
+      { href: '/admin/stores', label: 'Client Workspaces', icon: Store },
+      { href: '/admin/store-activity', label: 'Workspace Activity', icon: Activity },
+      { href: '/admin/client-items', label: 'Add Client Item', icon: PlusCircle },
+      { href: '/admin/products', label: 'Products & Services', icon: Package },
+      { href: '/admin/bookings', label: 'Bookings', icon: CalendarDays },
+      { href: '/admin/orders', label: 'Orders & Payments', icon: ShoppingBag },
+      { href: '/admin/customers', label: 'Customer Records', icon: Users },
+    ],
+  },
+  {
+    label: 'Finance',
+    items: [
+      { href: '/admin/settlements', label: 'Settlements', icon: WalletCards },
+      { href: '/admin/platform-activity', label: 'Transaction Activity', icon: CreditCard },
+    ],
+  },
+  {
+    label: 'Growth',
+    items: [{ href: '/admin/marketing', label: 'Marketing Center', icon: Mail }, { href: '/admin/ai-studio', label: 'AI Video Studio', icon: Clapperboard }],
+  },
+  {
+    label: 'Platform Health',
+    items: [
       { href: '/admin/checkout-health', label: 'Checkout Health', icon: CircleAlert },
-      { href: '/admin/deliveries', label: 'Webhook Deliveries', icon: Webhook },
+      { href: '/admin/deliveries', label: 'Webhook Logs', icon: Webhook },
     ],
   },
 ];
 
 export default function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boolean; onMobileClose: () => void }) {
   const pathname = usePathname();
+  const { role, scope } = useAdminContext();
+  const mayUseStudio = scope === 'platform' && (role === 'super_admin' || role === 'ops_admin');
   const nav = (
     <div className="flex h-full flex-col bg-slate-950 text-slate-200">
       <div className="flex items-center justify-between border-b border-slate-800 px-5 py-5">
@@ -67,7 +86,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boo
           <div key={group.label}>
             <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>
             <div className="space-y-1">
-              {group.items.map((item) => {
+              {group.items.filter((item) => item.href !== '/admin/ai-studio' || mayUseStudio).map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(`${item.href}/`));
                 return (

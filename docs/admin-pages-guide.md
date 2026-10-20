@@ -92,27 +92,32 @@ After login, the app redirects to:
 
 ## Overview page
 
-Path:
+Path: `/admin`
 
-```text
-/admin
-```
-
-Purpose:
-
-The main command center for the Sedifex platform.
+Purpose: The operations home page for Sedifex client businesses, payment exceptions, and manual settlements.
 
 Shows:
+- Business workspaces loaded from `stores` and `storeSettings`
+- Failed payment records from `integrationOrders`
+- Website bookings from `integrationBookings`
+- Pending store payouts and recorded fees from `manualSettlements`
+- Failed technical webhooks from `webhookDeliveries`
+- Quick links to analytics, settlements, business profiles, and marketing
 
-- Store settings count
-- Google Shopping connected count
-- Auto-sync enabled count
-- Recently updated stores
-- Firestore readiness
-- Store settings preview
-- Next action cards
+Important: Merchants fulfill their own orders. Do **not** label orders as delayed deliveries or offer platform admins physical fulfillment controls on the overview.
 
-Use this page first when checking the platform health.
+Money rules: paid order value belongs to merchants and is **not** Sedifex revenue. Only the `sedifexFee` field from manually recorded settlement ledgers is shown as a partial fee indicator, not total platform income.
+
+Coverage: The dashboard reads a capped set of records in document-ID order. Treat displayed figures as operational snapshots, not accounting totals.
+
+## Business Analytics page
+
+Path: `/admin/analytics`
+
+Purpose: Analyze loaded business order, booking, failed payment and manual settlement records for the selected period (7, 30, or 90 days). This replaces the old Sedifex Market traffic analytics interface.
+
+Reporting is bounded and explicitly labeled: the date filter applies only to the loaded Firestore records. Do not use these values for payout reconciliation or final accounting.
+
 
 ---
 
@@ -597,14 +602,15 @@ Add read-only environment checks so operators know what is missing without expos
 
 ## Recommended daily workflow
 
-1. Open `/admin`.
-2. Check Firestore readiness and overall stats.
-3. Open `/admin/checkout` for order or payment problems.
-4. Open `/admin/marketplace` for public catalog visibility.
-5. Open `/admin/products` for product quality issues.
-6. Open `/admin/google-shopping` for sync and Merchant Center issues.
-7. Open `/admin/integration-keys` for API key risks.
-8. Use `/admin/marketing` only when the Apps Script webhook is configured and the audience is correct.
+1. Open `/admin` for pending manual payouts, payment exceptions and webhook failures.
+2. Review `/admin/settlements` and verify outstanding payout ledger entries.
+3. Open `/admin/stores` for client business setup or subscription questions.
+4. Use `/admin/analytics` and `/admin/platform-activity` to examine business activity, not marketplace traffic.
+5. Investigate payment configuration in `/admin/checkout-health`.
+6. Use `/admin/marketing` for Sedifex Team communication.
+
+Do not use admin settlement or overview screens to change merchant shipping/delivery statuses. Existing legacy pages may remain routable during migration but are not surfaced as core navigation.
+
 
 ---
 
