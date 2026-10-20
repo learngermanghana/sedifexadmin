@@ -3,7 +3,7 @@
 import { createRefreshCoordinator } from '@/lib/refresh-coordinator';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Bell, CheckCircle2, Clock3, Download, PackageCheck, PackageOpen, Search, ShoppingCart, Truck, XCircle } from 'lucide-react';
+import { AlertTriangle, Bell, CheckCircle2, Clock3, Download, Search, ShoppingCart, XCircle } from 'lucide-react';
 import { isAcceptedWithoutPayment, isPaymentConfirmed, paymentAuditLabel, paymentReferenceValue, settlementStatusForOrder } from '@/lib/payment-audit';
 import { paymentPresentation, payoutPresentation, recordAmounts, formatRecordAmount } from '@/lib/record-status';
 import { classifyOrderWorkflow, unavailableOrderActionReason } from '@/lib/order-workflow';
@@ -82,7 +82,7 @@ type OrderRecord = {
   statusHistory?: unknown[];
 };
 
-type Bucket = 'all' | 'new' | 'payment_issues' | 'accepted' | 'preparing' | 'out_for_delivery' | 'delivered' | 'problem' | 'delayed';
+type Bucket = 'all' | 'new' | 'payment_issues' | 'paid' | 'problem';
 type StatusAction = 'confirm_payment';
 type OrderKind = 'product' | 'service' | 'manual';
 
@@ -95,14 +95,10 @@ type ActionOption = {
 const POLL_MS = 20000;
 const BUCKET_LABELS: Record<Bucket, string> = {
   all: 'All orders',
-  new: 'New / paid',
-  payment_issues: 'Payment issues',
-  accepted: 'Accepted',
-  preparing: 'Preparing',
-  out_for_delivery: 'Out for delivery',
-  delivered: 'Delivered / completed',
-  problem: 'Problem',
-  delayed: 'Delayed',
+  new: 'Pending payment',
+  payment_issues: 'Payment to verify',
+  paid: 'Paid / confirmed',
+  problem: 'Payment / order issue',
 };
 
 const STATUS_ACTION_LABELS: Record<StatusAction, string> = {
@@ -256,42 +252,25 @@ function actionsForOrder(order: OrderRecord): ActionOption[] {
 }
 
 function bucketFor(order: OrderRecord): Bucket {
+  const paymentStatus = lower(order.paymentStatus || order.payment_status);
   const orderStatus = lower(order.orderStatus);
-  const bookingStatus = lower(order.bookingStatus);
-  const fulfillmentStatus = lower(order.fulfillmentStatus);
-  const deliveryStatus = lower(order.deliveryStatus);
-  const paymentStatus = lower(order.paymentStatus);
-  const combined = [orderStatus, bookingStatus, fulfillmentStatus, deliveryStatus, paymentStatus].join(' ');
-
-  if (/cancel|refund|failed|problem|dispute|delivery_failed/.test(combined)) return 'problem';
-  if (deliveryStatus.includes('delivered') || orderStatus.includes('delivered') || orderStatus.includes('completed') || fulfillmentStatus.includes('completed') || order.deliveredAt || order.completedAt) return 'delivered';
-  if (deliveryStatus.includes('out_for_delivery') || deliveryStatus.includes('in_transit')) return 'out_for_delivery';
-  if (/prepar|pack|processing/.test(combined)) return 'preparing';
-  if (/accepted|confirmed_by_store|booking_confirmed|service_in_progress|ready_for_pickup/.test(combined)) return 'accepted';
-  if (/paid|success|successful|confirmed/.test(combined)) return 'new';
+  if (/failed|declined|chargeback|error|refunded/.test(paymentStatus) || /cancelled|canceled|refund/.test(orderStatus)) return 'problem';
+  if (isAcceptedWithoutPayment(order)) return 'payment_issues';
+  if (isPaymentConfirmed(order)) return 'paid';
   return 'new';
 }
 
-
 function bucketTone(bucket: Bucket) {
   if (bucket === 'payment_issues') return 'bg-amber-100 text-amber-800 ring-amber-200';
-  if (bucket === 'delivered') return 'bg-emerald-100 text-emerald-700 ring-emerald-200';
+  if (bucket === 'paid') return 'bg-emerald-100 text-emerald-700 ring-emerald-200';
   if (bucket === 'problem') return 'bg-rose-100 text-rose-700 ring-rose-200';
-  if (bucket === 'delayed') return 'bg-amber-100 text-amber-800 ring-amber-200';
-  if (bucket === 'out_for_delivery') return 'bg-blue-100 text-blue-700 ring-blue-200';
-  if (bucket === 'preparing') return 'bg-purple-100 text-purple-700 ring-purple-200';
-  if (bucket === 'accepted') return 'bg-indigo-100 text-indigo-700 ring-indigo-200';
   return 'bg-slate-100 text-slate-700 ring-slate-200';
 }
 
 function bucketIcon(bucket: Bucket) {
   if (bucket === 'payment_issues') return <AlertTriangle className="h-4 w-4" />;
-  if (bucket === 'delivered') return <CheckCircle2 className="h-4 w-4" />;
+  if (bucket === 'paid') return <CheckCircle2 className="h-4 w-4" />;
   if (bucket === 'problem') return <XCircle className="h-4 w-4" />;
-  if (bucket === 'delayed') return <AlertTriangle className="h-4 w-4" />;
-  if (bucket === 'out_for_delivery') return <Truck className="h-4 w-4" />;
-  if (bucket === 'preparing') return <PackageOpen className="h-4 w-4" />;
-  if (bucket === 'accepted') return <PackageCheck className="h-4 w-4" />;
   return <Clock3 className="h-4 w-4" />;
 }
 
@@ -459,10 +438,9 @@ export default function OrdersPage() {
   };
 
   const stats = useMemo(() => {
-    const initial = { all: orders.length, new: 0, payment_issues: 0, accepted: 0, preparing: 0, out_for_delivery: 0, delivered: 0, problem: 0, delayed: 0 } as Record<Bucket, number>;
+    const initial = { all: orders.length, new: 0, payment_issues: 0, paid: 0, problem: 0 } as Record<Bucket, number>;
     orders.forEach((order) => {
       initial[bucketFor(order)] += 1;
-      if (isAcceptedWithoutPayment(order)) initial.payment_issues += 1;
     });
     return initial;
   }, [orders]);
@@ -477,7 +455,7 @@ export default function OrdersPage() {
   const filtered = useMemo(() => {
     return orders.filter((order) => {
       const bucket = bucketFor(order);
-      const bucketMatch = activeBucket === 'all' ? true : activeBucket === 'payment_issues' ? isAcceptedWithoutPayment(order) : bucket === activeBucket;
+      const bucketMatch = activeBucket === 'all' || bucket === activeBucket;
       return bucketMatch && matchesSearch(order, query.trim());
     });
   }, [orders, activeBucket, query]);
@@ -566,7 +544,7 @@ export default function OrdersPage() {
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-            {(['all', 'new', 'payment_issues', 'problem'] as Bucket[]).map((bucket) => (
+            {(['all', 'new', 'payment_issues', 'paid', 'problem'] as Bucket[]).map((bucket) => (
               <button
                 key={bucket}
                 type="button"
@@ -604,7 +582,7 @@ export default function OrdersPage() {
               {filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">No orders match this filter.</div> : null}
               {pageOrders.map((order) => {
                 const bucket = bucketFor(order);
-                const shownBucket: Bucket = isAcceptedWithoutPayment(order) ? 'payment_issues' : bucket;
+                const shownBucket: Bucket = bucket;
                 const paymentIssue = isAcceptedWithoutPayment(order);
                 const kind = orderKind(order);
                 const actionOptions = actionsForOrder(order);
@@ -638,7 +616,7 @@ export default function OrdersPage() {
                     </div>
                     <div>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${bucketTone(shownBucket)}`}>{bucketIcon(shownBucket)} {BUCKET_LABELS[shownBucket]}</span>
-                      <p className="mt-2 text-xs text-slate-500">{statusText(order)}</p>
+                      <p className="mt-2 text-xs text-slate-500">Payment: {paymentStatusText(order)}</p>
                       {paymentIssue ? (
                         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
                           <p className="font-bold">{paymentAuditLabel(order)}</p>
