@@ -79,8 +79,12 @@ export function promptToAdInput(value: unknown, preferences?: Partial<VideoAdInp
   const requestedStyle: AdStyle = /luxur|premium|elegan|classy/i.test(normalized) ? 'luxury'
     : /fresh|bright|clean|natural|wellness/i.test(normalized) ? 'fresh' : 'bold';
   const askedCta = normalized.match(/\b(?:say|end with|call to action|cta)\s*[:“"]?\s*(order (?:now|today|on whatsapp)|shop now|book now|visit (?:our )?(?:website|store)|contact us|sign up now)/i);
-  // The whole prompt remains the truthful creative brief if product extraction is unclear.
-  const product = normalized.slice(0, 110) || 'Your product or service';
+  // Prefer the thing being advertised over repeating "Create a video for..."
+  const advertised = normalized.match(/\b(?:promote|advertise|showcase|feature)\s+([^.!?]{4,110})/i);
+  const fallbackTopic = normalized.match(/\b(?:for|about)\s+([^.!?]{4,110})/i);
+  const product = (advertised?.[1] || fallbackTopic?.[1] || normalized)
+    .replace(/\s+(?:with (?:a |an |the )|for (?:GHS|GH₵|₵|\$)|and (?:end|invite|show)|priced at).*/i, '')
+    .trim().slice(0, 110) || 'Your product or service';
   const input = normalizeAdInput({
     brand: business?.[1]?.replace(/\b(?:and|with|selling|offering)\b.*$/i, '').trim() || 'Your Business',
     product,
@@ -89,9 +93,16 @@ export function promptToAdInput(value: unknown, preferences?: Partial<VideoAdInp
     duration: seconds?.[1] ? Number(seconds[1]) : 15,
     style: requestedStyle,
   });
-  return { ...input, ...preferences, brand: preferences?.brand?.trim() || input.brand,
-    product: preferences?.product?.trim() || input.product,
-    price: preferences?.price?.trim() || input.price };
+  // Allow only explicit, normalized preferences from the browser.
+  return normalizeAdInput({
+    ...input,
+    ...(safeText(preferences?.brand, 55) ? { brand: safeText(preferences?.brand, 55) } : {}),
+    ...(safeText(preferences?.product, 110) ? { product: safeText(preferences?.product, 110) } : {}),
+    ...(safeText(preferences?.price, 36) ? { price: safeText(preferences?.price, 36) } : {}),
+    ...(safeText(preferences?.callToAction, 55) ? { callToAction: safeText(preferences?.callToAction, 55) } : {}),
+    ...(preferences?.duration !== undefined ? { duration: preferences.duration } : {}),
+    ...(preferences?.style !== undefined ? { style: preferences.style } : {}),
+  });
 }
 
 export function templateScriptForPrompt(prompt: string, input: VideoAdInput): VideoAdScript {
@@ -101,7 +112,7 @@ export function templateScriptForPrompt(prompt: string, input: VideoAdInput): Vi
   return {
     ...fallback,
     headline,
-    caption: cleanPrompt ? `${cleanPrompt}\n\n${input.callToAction}.` : fallback.caption,
+    caption: cleanPrompt ? `${input.product}${input.brand === 'Your Business' ? '' : ' by ' + input.brand}. ${input.price ? input.price + '. ' : ''}${input.callToAction}.` : fallback.caption,
     scenes: [
       { title: input.brand === 'Your Business' ? 'Your next big moment' : input.brand, subtitle: 'Something for you' },
       { title: headline, subtitle: 'Take a closer look' },
