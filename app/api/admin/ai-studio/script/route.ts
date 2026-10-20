@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import {
   normalizeAdInput, promptToAdInput, safeText, sanitizeAdScript, templateScript, templateScriptForPrompt,
+  type VideoAdInput,
 } from '@/lib/video-ad-studio';
 
 export const runtime = 'nodejs';
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'Describe the video in at least 12 characters.' }, { status: 400 });
   }
   const input = prompt
-    ? promptToAdInput(prompt, bodyRecord.preferences as Record<string, unknown> | undefined)
+    ? promptToAdInput(prompt, bodyRecord.preferences as Partial<VideoAdInput> | undefined)
     : normalizeAdInput(body);
   if (!input.brand || !input.product) {
     return NextResponse.json({ ok: false, error: 'Describe the advertisement or enter business and product details.' }, { status: 400 });
