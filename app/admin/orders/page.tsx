@@ -83,7 +83,7 @@ type OrderRecord = {
 };
 
 type Bucket = 'all' | 'new' | 'payment_issues' | 'accepted' | 'preparing' | 'out_for_delivery' | 'delivered' | 'problem' | 'delayed';
-type StatusAction = 'confirm_payment' | 'mark_store_paid' | 'received' | 'preparing' | 'out_for_delivery' | 'delivered' | 'confirm_service' | 'service_in_progress' | 'service_completed' | 'complete_manual';
+type StatusAction = 'confirm_payment';
 type OrderKind = 'product' | 'service' | 'manual';
 
 type ActionOption = {
@@ -107,36 +107,9 @@ const BUCKET_LABELS: Record<Bucket, string> = {
 
 const STATUS_ACTION_LABELS: Record<StatusAction, string> = {
   confirm_payment: 'Confirm payment received',
-  mark_store_paid: 'Mark store paid',
-  received: 'Accept order',
-  preparing: 'Preparing',
-  out_for_delivery: 'Out for delivery',
-  delivered: 'Delivered',
-  confirm_service: 'Confirm booking',
-  service_in_progress: 'Service started',
-  service_completed: 'Service completed',
-  complete_manual: 'Mark completed',
 };
 
 const PAYMENT_ACTION: ActionOption = { id: 'confirm_payment', label: 'Confirm payment received', tone: 'emerald' };
-const STORE_PAYOUT_ACTION: ActionOption = { id: 'mark_store_paid', label: 'Mark store paid', tone: 'emerald' };
-
-const PRODUCT_ACTIONS: ActionOption[] = [
-  { id: 'received', label: 'Accept order', tone: 'slate' },
-  { id: 'preparing', label: 'Preparing', tone: 'purple' },
-  { id: 'out_for_delivery', label: 'Out for delivery', tone: 'blue' },
-  { id: 'delivered', label: 'Delivered', tone: 'emerald' },
-];
-
-const SERVICE_ACTIONS: ActionOption[] = [
-  { id: 'confirm_service', label: 'Confirm booking', tone: 'slate' },
-  { id: 'service_in_progress', label: 'Service started', tone: 'blue' },
-  { id: 'service_completed', label: 'Service completed', tone: 'emerald' },
-];
-
-const MANUAL_ACTIONS: ActionOption[] = [
-  { id: 'complete_manual', label: 'Mark completed', tone: 'emerald' },
-];
 
 function clean(value: unknown, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback;
@@ -279,17 +252,7 @@ function kindLabel(kind: OrderKind) {
 }
 
 function actionsForOrder(order: OrderRecord): ActionOption[] {
-  const paymentConfirmed = isPaymentConfirmed(order);
-  const paymentActions = paymentConfirmed ? [] : [PAYMENT_ACTION];
-  if (!classifyOrderWorkflow(order).allowsAdminFulfillment) {
-    const payoutActions = [STORE_PAYOUT_ACTION];
-    return [...paymentActions, ...payoutActions];
-  }
-
-  const kind = orderKind(order);
-  if (kind === 'manual') return [...paymentActions, ...MANUAL_ACTIONS];
-  if (kind === 'service') return [...paymentActions, ...SERVICE_ACTIONS];
-  return [...paymentActions, ...PRODUCT_ACTIONS];
+  return isPaymentConfirmed(order) ? [] : [PAYMENT_ACTION];
 }
 
 function bucketFor(order: OrderRecord): Bucket {
@@ -309,17 +272,6 @@ function bucketFor(order: OrderRecord): Bucket {
   return 'new';
 }
 
-function isDelayed(order: OrderRecord) {
-  const bucket = bucketFor(order);
-  if (bucket === 'delivered' || bucket === 'problem') return false;
-  const time = orderTime(order);
-  if (!time) return false;
-  const hours = (Date.now() - time) / 36e5;
-  if (bucket === 'new') return hours >= 1;
-  if (bucket === 'accepted' || bucket === 'preparing') return hours >= 6;
-  if (bucket === 'out_for_delivery') return hours >= 12;
-  return hours >= 24;
-}
 
 function bucketTone(bucket: Bucket) {
   if (bucket === 'payment_issues') return 'bg-amber-100 text-amber-800 ring-amber-200';
@@ -475,11 +427,7 @@ export default function OrdersPage() {
   const updateOrderStatus = async (order: OrderRecord, action: StatusAction) => {
     if (actionInFlight.current) return;
     const label = STATUS_ACTION_LABELS[action];
-    const prompt = action === 'confirm_payment'
-      ? 'Confirm that Sedifex received this payment? This creates an admin audit record and does not complete the order.'
-      : action === 'mark_store_paid'
-        ? 'Confirm that Sedifex paid this store? This records the payout and does not complete the order.'
-        : `Mark this ${kindLabel(orderKind(order)).toLowerCase()} as ${label}? SedifexMarket is responsible for following this order through completion.`;
+    const prompt = 'Confirm that Sedifex verified this payment? This records payment verification but does not change business fulfillment.';
     const ok = window.confirm(prompt);
     if (!ok) return;
 
@@ -515,7 +463,6 @@ export default function OrdersPage() {
     orders.forEach((order) => {
       initial[bucketFor(order)] += 1;
       if (isAcceptedWithoutPayment(order)) initial.payment_issues += 1;
-      if (isDelayed(order)) initial.delayed += 1;
     });
     return initial;
   }, [orders]);
@@ -530,7 +477,7 @@ export default function OrdersPage() {
   const filtered = useMemo(() => {
     return orders.filter((order) => {
       const bucket = bucketFor(order);
-      const bucketMatch = activeBucket === 'all' ? true : activeBucket === 'payment_issues' ? isAcceptedWithoutPayment(order) : activeBucket === 'delayed' ? isDelayed(order) : bucket === activeBucket;
+      const bucketMatch = activeBucket === 'all' ? true : activeBucket === 'payment_issues' ? isAcceptedWithoutPayment(order) : bucket === activeBucket;
       return bucketMatch && matchesSearch(order, query.trim());
     });
   }, [orders, activeBucket, query]);
@@ -595,9 +542,9 @@ export default function OrdersPage() {
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-400/10 px-3 py-1 text-xs font-semibold text-indigo-100">
               <Bell className="h-4 w-4" /> Live order monitoring
             </div>
-            <h2 className="mt-5 max-w-4xl text-3xl font-bold tracking-tight sm:text-4xl">Manage Sedifex orders on behalf of stores.</h2>
+            <h2 className="mt-5 max-w-4xl text-3xl font-bold tracking-tight sm:text-4xl">Monitor business orders and their payment records.</h2>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
-              Product orders, service bookings, and manual entries now keep payment status separate from fulfillment progress.
+              Sedifex Admin verifies payments and reconciles settlements. Businesses manage their own order preparation, delivery and service completion.
             </p>
           </div>
           <button type="button" onClick={downloadCsv} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 hover:bg-slate-100">
@@ -609,8 +556,8 @@ export default function OrdersPage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orders loaded</p><p className="mt-2 text-2xl font-bold text-slate-950">{orders.length}</p><p className="mt-1 text-xs text-emerald-600">From integrationOrders</p></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order types</p><p className="mt-2 text-sm font-bold text-slate-950">P: {kindStats.product} · S: {kindStats.service} · M: {kindStats.manual}</p><p className="mt-1 text-xs text-slate-500">Product / Service / Manual</p></div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delayed</p><p className="mt-2 text-2xl font-bold text-slate-950">{stats.delayed}</p><p className="mt-1 text-xs text-rose-600">Requires follow-up</p></div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shown value</p><p className="mt-2 text-2xl font-bold text-slate-950">{revenue}</p><p className="mt-1 text-xs text-slate-500">Current filter total</p></div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payment issues</p><p className="mt-2 text-2xl font-bold text-slate-950">{stats.payment_issues}</p><p className="mt-1 text-xs text-rose-600">Requires payment review</p></div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shown value</p><p className="mt-2 text-2xl font-bold text-slate-950">{revenue}</p><p className="mt-1 text-xs text-slate-500">Merchant order value in current filter · not Sedifex revenue</p></div>
       </section>
 
       {newOrderMessage ? <p role="status" className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-900">{newOrderMessage} <button type="button" onClick={() => setNewOrderMessage('')} className="ml-3 underline">Dismiss</button></p> : null}
@@ -619,7 +566,7 @@ export default function OrdersPage() {
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-            {(['all', 'new', 'payment_issues', 'accepted', 'preparing', 'out_for_delivery', 'delivered', 'problem', 'delayed'] as Bucket[]).map((bucket) => (
+            {(['all', 'new', 'payment_issues', 'problem'] as Bucket[]).map((bucket) => (
               <button
                 key={bucket}
                 type="button"
@@ -657,8 +604,7 @@ export default function OrdersPage() {
               {filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">No orders match this filter.</div> : null}
               {pageOrders.map((order) => {
                 const bucket = bucketFor(order);
-                const delayed = isDelayed(order);
-                const shownBucket: Bucket = isAcceptedWithoutPayment(order) ? 'payment_issues' : delayed && bucket !== 'problem' && bucket !== 'delivered' ? 'delayed' : bucket;
+                const shownBucket: Bucket = isAcceptedWithoutPayment(order) ? 'payment_issues' : bucket;
                 const paymentIssue = isAcceptedWithoutPayment(order);
                 const kind = orderKind(order);
                 const actionOptions = actionsForOrder(order);
@@ -696,7 +642,7 @@ export default function OrdersPage() {
                       {paymentIssue ? (
                         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
                           <p className="font-bold">{paymentAuditLabel(order)}</p>
-                          <p className="mt-1 leading-5">This order was received or accepted, but Sedifex has not confirmed payment yet. Confirm cash or verify online payment before fulfillment.</p>
+                          <p className="mt-1 leading-5">Payment verification is incomplete. Check the payment evidence; the business manages fulfillment.</p>
                         </div>
                       ) : null}
                     </div>
@@ -736,7 +682,7 @@ export default function OrdersPage() {
                           {unavailableOrderActionReason(order, action.id, isPaymentConfirmed(order)) ? <span className="block text-[11px] font-normal">{unavailableOrderActionReason(order, action.id, isPaymentConfirmed(order))}</span> : null}
                         </button>
                         ))}
-                        {actionOptions.length === 0 ? <span className="text-[11px] font-semibold text-emerald-700">{workflow.allowsAdminFulfillment ? 'Payment audit complete' : 'Payment and payout complete'}</span> : null}
+                        {actionOptions.length === 0 ? <span className="text-[11px] font-semibold text-emerald-700">{'Payment verification complete · review payouts in Settlements'}</span> : null}
                       </div>
                     </div>
                   </div>
