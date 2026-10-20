@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { authorizeAdminRequest } from '@/lib/admin-api-auth';
 import {
-  normalizeAdInput, sanitizeAdScript, templateScript,
+  normalizeAdInput, promptToAdInput, safeText, sanitizeAdScript, templateScript, templateScriptForPrompt,
+  type VideoAdInput,
 } from '@/lib/video-ad-studio';
 
 export const runtime = 'nodejs';
@@ -17,15 +18,22 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON.' }, { status: 400 });
   }
-  const input = normalizeAdInput(body);
-  if (!input.brand || !input.product) {
-    return NextResponse.json({ ok: false, error: 'Business name and advertised product are required.' }, { status: 400 });
+  const bodyRecord = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+  const prompt = safeText(bodyRecord.prompt, 1100);
+  if (prompt && prompt.length < 12) {
+    return NextResponse.json({ ok: false, error: 'Describe the video in at least 12 characters.' }, { status: 400 });
   }
-  const fallback = templateScript(input);
+  const input = prompt
+    ? promptToAdInput(prompt, bodyRecord.preferences as Partial<VideoAdInput> | undefined)
+    : normalizeAdInput(body);
+  if (!input.brand || !input.product) {
+    return NextResponse.json({ ok: false, error: 'Describe the advertisement or enter business and product details.' }, { status: 400 });
+  }
+  const fallback = prompt ? templateScriptForPrompt(prompt, input) : templateScript(input);
   const enabled = process.env.SEDIFEX_AI_STUDIO_ENABLE_GEMINI === 'true';
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!enabled || !apiKey) {
-    return NextResponse.json({ ok: true, mode: 'template', script: fallback,
+    return NextResponse.json({ ok: true, mode: 'template', input, script: fallback,
       notice: 'Local storyboard. No Google API request was made. Configure the server-side Gemini key and opt-in flag for AI scripting.' });
   }
 
@@ -42,7 +50,7 @@ export async function POST(request: Request) {
           systemInstruction: { parts: [{ text: 'Write factual, upbeat, tasteful ad scripts for small businesses. Return JSON only. Do not invent discounts, price, certifications or business claims. Use exactly four scenes. Keep headlines short, legible and suitable for social media motion graphics. Do not add web links.' }] },
           contents: [{ role: 'user', parts: [{ text: JSON.stringify({
             instruction: 'Provide fields headline, subheading, offer, callToAction, caption, scenes (four objects with title and subtitle).',
-            brand: input.brand, product: input.product, price: input.price,
+            creativeBrief: prompt || undefined, brand: input.brand, product: input.product, price: input.price,
             callToAction: input.callToAction, style: input.style, durationSeconds: input.duration,
           }) }] }],
           generationConfig: { responseMimeType: 'application/json', temperature: 0.6, maxOutputTokens: 500 },
@@ -55,7 +63,7 @@ export async function POST(request: Request) {
     const json = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
     const rawText = json.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('') || '';
     const generated: unknown = JSON.parse(rawText);
-    return NextResponse.json({ ok: true, mode: 'gemini', script: sanitizeAdScript(generated, fallback),
+    return NextResponse.json({ ok: true, mode: 'gemini', input, script: sanitizeAdScript(generated, fallback),
       notice: 'Storyboard generated with Gemini Flash-Lite. API billing depends on the Google account tier.' });
   } catch {
     // Fail closed to a local template and do not leak API keys or provider payloads.
