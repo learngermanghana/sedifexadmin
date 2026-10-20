@@ -27,6 +27,7 @@ const titleMap: Record<string, { title: string; description: string }> = {
   '/admin/checkout-health': { title: 'Checkout Health', description: 'Diagnose store setup, payment, environment, and webhook issues.' },
   '/admin/deliveries': { title: 'Webhook Logs', description: 'Inspect technical webhook events, failures, retries and replay actions; not physical delivery.' },
   '/admin/live-chat': { title: 'Live Chat', description: 'Reply to Sedifex Market visitor messages and manage support conversations.' },
+  '/admin/ai-studio': { title: 'AI Video Studio', description: 'Experiment with free browser-rendered animated video ads and optional Gemini ad scripts.' },
   '/admin/marketing': { title: 'Marketing Center', description: 'Manage Sedifex marketing contacts and campaigns.' },
   '/admin/adverts': { title: 'Advert Manager', description: 'Create, schedule, and manage Sedifex Market homepage flash adverts.' },
   '/admin/store-access': { title: 'Store Access', description: 'Reset store Firebase Auth email and password while keeping UID metadata in sync.' },
