@@ -1,6 +1,7 @@
 'use client';
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { Download, ImagePlus, Music2, Play, RefreshCw, Sparkles, Video } from 'lucide-react';
 import {
   type AdFormat, type AdStyle, type VideoAdInput, type VideoAdScript,
@@ -240,13 +241,15 @@ export default function VideoAdStudioClient() {
   const [progress, setProgress] = useState(0);
   const [videoUrl, setVideoUrl] = useState('');
   const [videoType, setVideoType] = useState('');
+  const [supportedMime, setSupportedMime] = useState('');
   const [error, setError] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
   const urlRef = useRef<{ photo: string | null; logo: string | null; video: string | null }>({photo:null,logo:null,video:null});
   const renderingRef = useRef(false);
   const media = useMemo(() => ({ photo, logo }), [photo, logo]);
-  const mime = typeof window === 'undefined' ? '' : getMimeType();
+  useEffect(() => { setSupportedMime(getMimeType()); }, []);
+  const mime = supportedMime;
 
   useEffect(() => {
     if (renderingRef.current) return;
@@ -263,6 +266,15 @@ export default function VideoAdStudioClient() {
     rafRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafRef.current);
   }, [input, format, script, media, exporting]);
+
+  useEffect(() => {
+    if (urlRef.current.video) {
+      URL.revokeObjectURL(urlRef.current.video);
+      urlRef.current.video = null;
+    }
+    setVideoUrl('');
+    setVideoType('');
+  }, [input, format, script, photo, logo, music]);
 
   useEffect(() => () => {
     for (const url of Object.values(urlRef.current)) if (url) URL.revokeObjectURL(url);
