@@ -13,6 +13,7 @@ import {
   House,
   Mail,
   Package,
+  Clapperboard,
   PlusCircle,
   ShoppingBag,
   Store,
@@ -53,7 +54,7 @@ const groups: { label: string; items: Item[] }[] = [
   },
   {
     label: 'Growth',
-    items: [{ href: '/admin/marketing', label: 'Marketing Center', icon: Mail }],
+    items: [{ href: '/admin/marketing', label: 'Marketing Center', icon: Mail }, { href: '/admin/ai-studio', label: 'AI Video Studio', icon: Clapperboard }],
   },
   {
     label: 'Platform Health',
