@@ -19,8 +19,8 @@ type KeyInfo = {
 const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100';
 const apiUrl = '/api/admin/integration-keys';
 
-export default function AdminIntegrationManager({ stores }: { stores: StoreOption[] }) {
-  const [storeId, setStoreId] = useState('');
+export default function AdminIntegrationManager({ stores, initialStoreId = '' }: { stores: StoreOption[]; initialStoreId?: string }) {
+  const [storeId, setStoreId] = useState(stores.some(store => store.id === initialStoreId) ? initialStoreId : '');
   const [name, setName] = useState('Client website');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [keys, setKeys] = useState<KeyInfo[]>([]);
