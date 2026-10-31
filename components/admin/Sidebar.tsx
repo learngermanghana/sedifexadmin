@@ -21,6 +21,7 @@ import {
   Users,
   WalletCards,
   Webhook,
+  KeyRound,
   X,
 } from 'lucide-react';
 
@@ -62,6 +63,7 @@ const groups: { label: string; items: Item[] }[] = [
     items: [
       { href: '/admin/checkout-health', label: 'Checkout Health', icon: CircleAlert },
       { href: '/admin/deliveries', label: 'Webhook Logs', icon: Webhook },
+      { href: '/admin/integration-keys', label: 'Client Integrations', icon: KeyRound },
     ],
   },
 ];
@@ -86,7 +88,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boo
           <div key={group.label}>
             <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>
             <div className="space-y-1">
-              {group.items.filter((item) => item.href !== '/admin/ai-studio' || mayUseStudio).map((item) => {
+              {group.items.filter((item) => !['/admin/ai-studio', '/admin/integration-keys'].includes(item.href) || mayUseStudio).map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(`${item.href}/`));
                 return (
