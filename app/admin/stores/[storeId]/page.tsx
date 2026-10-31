@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ArrowLeft, Database, Edit3, ExternalLink, Hammer, PackageSearch, ReceiptText, ShoppingBag, Store } from 'lucide-react';
 import { SectionCard, StatusBadge } from '../../../../components/admin/ui';
 import { getFirebaseEnvStatus, getFirestoreDocument, listFirestoreDocuments } from '../../../../lib/firebase-admin';
+import { getAuthenticatedAdminSession } from '../../../../lib/admin-session-server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -169,6 +170,8 @@ function DetailRow({ label, value }: { label: string; value: string | number }) 
 
 export default async function StoreDetailPage({ params }: { params: Params }) {
   const { storeId } = await params;
+  const session = await getAuthenticatedAdminSession();
+  const canManageIntegrations = session?.scope === 'platform' && (session.role === 'super_admin' || session.role === 'ops_admin');
   const decodedStoreId = decodeURIComponent(storeId);
   const result = await loadStore(decodedStoreId);
   const identity = mergedIdentity(result.profile, result.settings);
@@ -198,9 +201,12 @@ export default async function StoreDetailPage({ params }: { params: Params }) {
         <Link href="/admin/stores" className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-500">
           <ArrowLeft className="h-4 w-4" /> Back to stores
         </Link>
+        <div className="flex flex-wrap gap-2">
+          {canManageIntegrations ? <Link href={`/admin/integration-keys?storeId=${encodeURIComponent(decodedStoreId)}`} className="inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-white px-4 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50">Manage website integration</Link> : null}
         <Link href={`/admin/stores/${encodeURIComponent(decodedStoreId)}/edit`} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-indigo-500">
           <Edit3 className="h-4 w-4" /> Edit store
         </Link>
+        </div>
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-slate-950 p-6 text-white shadow-sm sm:p-8">

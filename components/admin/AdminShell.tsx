@@ -30,6 +30,7 @@ const titleMap: Record<string, { title: string; description: string }> = {
   '/admin/ai-studio': { title: 'AI Video Studio', description: 'Experiment with free browser-rendered animated video ads and optional Gemini ad scripts.' },
   '/admin/marketing': { title: 'Marketing Center', description: 'Manage Sedifex marketing contacts and campaigns.' },
   '/admin/adverts': { title: 'Advert Manager', description: 'Create, schedule, and manage Sedifex Market homepage flash adverts.' },
+  '/admin/integration-keys': { title: 'Client Integrations', description: 'Select a store, create website integration credentials, and revoke inactive connections without client passwords.' },
   '/admin/store-access': { title: 'Store Access', description: 'Reset store Firebase Auth email and password while keeping UID metadata in sync.' },
   '/admin/store-settings/manage': { title: 'Advanced Store Settings', description: 'Edit technical store settings, integration API, auto-sync, and booking sync safely.' },
 };

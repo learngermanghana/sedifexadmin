@@ -1,0 +1,32 @@
+name: Sedifex Admin Typecheck
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'app/admin/integration-keys/**'
+      - 'app/api/admin/integration-keys/**'
+      - 'app/admin/stores/**'
+      - 'components/admin/**'
+      - 'lib/admin-access.ts'
+      - '.github/workflows/admin-integrations-ci.yml'
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
