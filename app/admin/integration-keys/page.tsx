@@ -1,7 +1,10 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import AdminIntegrationManager from '../../../components/admin/AdminIntegrationManager';
+import { getAuthenticatedAdminSession } from '../../../lib/admin-session-server';
 import { AlertTriangle, ArrowUpRight, Clock, KeyRound, ShieldAlert, ShieldCheck, Store, TimerReset } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '../../../components/admin/ui';
-import { getFirebaseEnvStatus, listFirestoreDocuments } from '../../../lib/firebase-admin';
+import { getFirebaseEnvStatus, listFirestoreDocuments, listAllFirestoreDocuments } from '../../../lib/firebase-admin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -106,8 +109,8 @@ async function loadIntegrationKeys() {
   try {
     const [keysResult, storesResult, settingsResult] = await Promise.all([
       listFirestoreDocuments('integrationApiKeys', 100),
-      listFirestoreDocuments('stores', 100),
-      listFirestoreDocuments('storeSettings', 100),
+      listAllFirestoreDocuments('stores'),
+      listAllFirestoreDocuments('storeSettings'),
     ]);
 
     return {
@@ -126,7 +129,10 @@ async function loadIntegrationKeys() {
   }
 }
 
-export default async function IntegrationKeysPage() {
+export default async function IntegrationKeysPage({ searchParams }: { searchParams: Promise<{ storeId?: string }> }) {
+  const session = await getAuthenticatedAdminSession();
+  if (!session || session.scope !== 'platform' || !['super_admin', 'ops_admin'].includes(session.role)) redirect('/admin');
+  const params = await searchParams;
   const result = await loadIntegrationKeys();
   const keys = result.keys;
   const storeMap = new Map(result.stores.map((store) => [cleanText(store.id), store]));
@@ -165,6 +171,7 @@ export default async function IntegrationKeysPage() {
 
   return (
     <div className="space-y-6">
+      {result.ok ? <AdminIntegrationManager stores={Array.from(storeMap.entries()).map(([id, store]) => ({ id, name: storeName(store, id) }))} initialStoreId={params.storeId || ''} /> : null}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
       </section>
