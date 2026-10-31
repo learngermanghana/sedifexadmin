@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Check, Copy, KeyRound, Link2, RefreshCw, ShieldCheck, ShieldX, Store } from 'lucide-react';
 
 type StoreOption = { id: string; name: string; email?: string };
@@ -67,7 +67,7 @@ export default function AdminIntegrationManager({ stores, initialStoreId = '' }:
     setWebsiteUrl('');
   }
 
-  async function createKey(event: React.FormEvent<HTMLFormElement>) {
+  async function createKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!storeId || !name.trim() || working) return;
     setWorking(true);
@@ -144,7 +144,7 @@ export default function AdminIntegrationManager({ stores, initialStoreId = '' }:
         <div className="space-y-4">
           <label className="block">
             <span className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500"><Store className="h-4 w-4" /> Client store</span>
-            <select className={inputClass} value={storeId} onChange={e => selectStore(e.target.value)}>
+            <select className={inputClass} value={storeId} disabled={working} onChange={e => selectStore(e.target.value)}>
               <option value="">Choose a client store…</option>
               {stores.map(store => <option key={store.id} value={store.id}>{store.name}{store.email ? ' · ' + store.email : ''}</option>)}
             </select>
