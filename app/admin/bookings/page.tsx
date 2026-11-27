@@ -199,7 +199,7 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
   const all = [...data.bookings].sort((a, b) => createdAt(b) - createdAt(a));
   const searched = query
     ? all.filter((row) => [
-        reference(row), customerName(row), customerContact(row), serviceName(row), storeId(row), data.stores.get(storeId(row)) || '',
+        ...bookingIdentity(row), customerName(row), customerContact(row), serviceName(row), storeId(row), data.stores.get(storeId(row)) || '',
       ].join(' ').toLowerCase().includes(query))
     : all;
 
