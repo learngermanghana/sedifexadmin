@@ -58,3 +58,18 @@ test('notification lookups query only visible references, in bounded batches', a
   await api.listBookingNotifications([]);
   assert.equal(queried.length, 50);
 });
+
+test('booking notification lookup includes event-specific records via booking identity', async () => {
+  const queries = [];
+  const doc = { id: 'email-record', data: () => ({ storeId: 'store-1', reference: 'booking-1-booking-confirmed-date', data: { bookingId: 'booking-1' } }), ref: { path: 'notification_outbox/email-record' } };
+  const db = { collection: () => ({ where: (field, operator, values) => {
+    assert.equal(operator, 'in');
+    queries.push({ field, values });
+    return { get: async () => ({ docs: field === 'reference' ? [] : [doc] }) };
+  } }) };
+  const api = load(modulePath('lib/firebase-admin.ts'), { 'firebase-admin/app': { getApps: () => [{}] }, 'firebase-admin/firestore': { getFirestore: () => db }, 'firebase-admin/auth': {}, 'firebase-admin/storage': {} });
+  const result = await api.listBookingNotifications(['original-ref'], ['booking-1']);
+  assert.deepEqual(queries, [{ field: 'reference', values: ['original-ref'] }, { field: 'data.bookingId', values: ['booking-1'] }, { field: 'data.booking_id', values: ['booking-1'] }]);
+  assert.equal(result.documents.length, 1);
+  assert.equal(result.documents[0].id, 'email-record');
+});
