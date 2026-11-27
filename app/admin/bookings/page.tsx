@@ -122,19 +122,17 @@ function paymentTone(row: Doc): 'green' | 'yellow' | 'red' | 'blue' | 'slate' {
 
 function bookingLabel(row: Doc) { return bookingPresentation(row).label; }
 
-function notificationSummary(rows: Doc[], bookingReference: string) {
-  const matching = rows
-    .filter((row) => text(row.reference) === bookingReference)
-    .sort((a, b) => createdAt(b) - createdAt(a));
+function bookingIdentity(row: Doc) {
+  return [...new Set([text(row.id), text(row.bookingId), text(row.booking_id), reference(row)].filter(Boolean))];
+}
 
-  if (!matching.length) return { label: 'No email record', tone: 'slate' as const, detail: 'No matching notification outbox record.' };
-
-  const customer = matching.find((row) => text(row.recipientType).toLowerCase() === 'customer');
-  const store = matching.find((row) => text(row.recipientType).toLowerCase() === 'store');
-  const latest = customer || store || matching[0];
-  const status = text(latest.status, 'queued').toLowerCase();
-  const reason = text(latest.deliveryReason ?? latest.errorMessage ?? latest.deliveryStatus, '');
-
+function notificationSummary(rows: Doc[], booking: Doc) {
+  const ids = bookingIdentity(booking);
+  const matching = rows.filter(row => {
+    if (text(row.storeId) !== storeId(booking)) return false;
+    const data = record(row.data);
+    return [text(data.bookingId), text(data.booking_id), text(row.reference)].some(id => ids.includes(id));
+  }).sort((a, b) => createdAt(b) - createdAt(a));
   const statusLabel = (value: string) => {
     if (value === 'delivery_accepted') return 'Accepted by sender';
     if (value === 'delivery_failed' || value === 'webhook_error') return 'Delivery failed';
@@ -142,16 +140,27 @@ function notificationSummary(rows: Doc[], bookingReference: string) {
     if (value === 'queued') return 'Queued';
     return value.replace(/_/g, ' ');
   };
-
-  const parts = [
-    customer ? `Customer: ${statusLabel(text(customer.status, 'queued').toLowerCase())}` : '',
-    store ? `Store: ${statusLabel(text(store.status, 'queued').toLowerCase())}` : '',
-  ].filter(Boolean);
-
+  // Keep the two recipient outcomes independent, and never let a successful
+  // customer delivery mask a failed or missing store delivery.
+  const latestEvent = matching[0]?.eventType;
+  const eventRows = matching.filter(row => row.eventType === latestEvent);
+  const customer = eventRows.find(row => text(row.recipientType).toLowerCase() === 'customer');
+  const storeRows = eventRows.filter(row => text(row.recipientType).toLowerCase() === 'store');
+  const stores = [...new Map(storeRows.slice().reverse().map(row => [text(row.to), row])).values()];
+  const outcomes = [customer, ...stores].filter((row): row is Doc => Boolean(row));
+  const status = (row: Doc) => text(row.status, 'queued').toLowerCase();
+  const describe = (row: Doc) => [statusLabel(status(row)), text(row.deliveryReason ?? row.errorMessage, '')].filter(Boolean).join(' — ');
+  const failed = outcomes.some(row => ['delivery_failed', 'webhook_error'].includes(status(row)));
+  const accepted = Boolean(customer && stores.length && outcomes.every(row => status(row) === 'delivery_accepted'));
+  const detail = [
+    latestEvent ? text(latestEvent) : 'No matching notification outbox record',
+    `Client: ${customer ? describe(customer) : 'No email record'}`,
+    `Store: ${stores.length ? stores.map(describe).join('; ') : 'No email record'}`,
+  ].join(' · ');
   return {
-    label: statusLabel(status),
-    tone: status === 'delivery_accepted' ? ('green' as const) : status === 'delivery_failed' || status === 'webhook_error' ? ('red' as const) : status === 'queued_no_live_sender' ? ('yellow' as const) : ('blue' as const),
-    detail: [parts.join(' · '), reason].filter(Boolean).join(' · '),
+    label: failed ? 'Delivery failed' : accepted ? 'Both accepted by sender' : !matching.length ? 'No email record' : 'Incomplete / pending',
+    tone: failed ? ('red' as const) : accepted ? ('green' as const) : ('yellow' as const),
+    detail,
   };
 }
 
@@ -190,7 +199,7 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
   const all = [...data.bookings].sort((a, b) => createdAt(b) - createdAt(a));
   const searched = query
     ? all.filter((row) => [
-        reference(row), customerName(row), customerContact(row), serviceName(row), storeId(row), data.stores.get(storeId(row)) || '',
+        ...bookingIdentity(row), customerName(row), customerContact(row), serviceName(row), storeId(row), data.stores.get(storeId(row)) || '',
       ].join(' ').toLowerCase().includes(query))
     : all;
 
@@ -209,19 +218,12 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
   const visibleBookings = filtered.slice((page - 1) * 50, page * 50);
   if (!data.error) {
     try {
-      const notifications = await listBookingNotifications(visibleBookings.map(reference));
+      const notifications = await listBookingNotifications(visibleBookings.flatMap(bookingIdentity), visibleBookings.flatMap(bookingIdentity));
       data.notifications = notifications.documents as Doc[];
     } catch {
       data.notificationsAvailable = false;
       data.warnings.push('Notification status could not be loaded. Refresh to retry.');
     }
-  }
-  const notificationsByReference = new Map<string, Doc[]>();
-  for (const notification of data.notifications) {
-    const key = text(notification.reference);
-    const records = notificationsByReference.get(key) || [];
-    records.push(notification);
-    notificationsByReference.set(key, records);
   }
   const stats = [
     { label: 'Needs confirmation', value: String(all.filter(attention).length), delta: 'Booking or payment review' },
@@ -300,7 +302,7 @@ export default async function AdminBookingsPage({ searchParams }: { searchParams
                 const owner = storeId(row);
                 const amounts = recordAmounts(row);
                 const payout = payoutPresentation(row);
-                const emailState = data.notificationsAvailable ? notificationSummary(notificationsByReference.get(reference(row)) || [], reference(row)) : { label: 'Status unavailable', tone: 'yellow' as const, detail: 'Notification records could not be loaded. Refresh to retry.' };
+                const emailState = data.notificationsAvailable ? notificationSummary(data.notifications, row) : { label: 'Status unavailable', tone: 'yellow' as const, detail: 'Notification records could not be loaded. Refresh to retry.' };
                 return (
                   <tr key={row.id || reference(row)}>
                     <td className="px-4 py-3 text-xs text-slate-500">{formatDate(createdAt(row))}</td>

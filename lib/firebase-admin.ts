@@ -213,12 +213,22 @@ export async function listAllFirestoreDocuments(collectionPath: string) {
 }
 
 /** Fetch only outbox records associated with the visible booking references. */
-export async function listBookingNotifications(references: string[]) {
-  const unique = [...new Set(references.filter(Boolean))];
-  const pages = await Promise.all(Array.from({ length: Math.ceil(unique.length / 30) }, async (_, index) => {
+export async function listBookingNotifications(references: string[], bookingIds: string[] = []) {
+  const queries = [
+    { field: 'reference', values: references },
+    { field: 'data.bookingId', values: bookingIds },
+    { field: 'data.booking_id', values: bookingIds },
+  ].flatMap(({ field, values }) => {
+    const unique = [...new Set(values.filter(Boolean))];
+    return Array.from({ length: Math.ceil(unique.length / 30) }, (_, index) => ({
+      field, values: unique.slice(index * 30, (index + 1) * 30),
+    }));
+  });
+  const pages = await Promise.all(queries.map(async ({ field, values }) => {
     const snapshot = await firestore().collection('notification_outbox')
-      .where('reference', 'in', unique.slice(index * 30, (index + 1) * 30)).get();
+      .where(field, 'in', values).get();
     return snapshot.docs.map(normalizeDocument);
   }));
-  return { documents: pages.flat() };
+  const documents = new Map(pages.flat().map(document => [document.id, document]));
+  return { documents: [...documents.values()] };
 }
