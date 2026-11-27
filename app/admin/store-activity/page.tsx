@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Activity, AlertTriangle, ArrowUpRight, Clock3, Search, Store } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '../../../components/admin/ui';
-import { getFirebaseEnvStatus, listFirestoreDocuments } from '../../../lib/firebase-admin';
+import { getFirebaseEnvStatus, listFirestoreDocuments, listBookingNotifications } from '../../../lib/firebase-admin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -22,6 +22,7 @@ type ActivityEvent = {
   action: string;
   description: string;
   recordId: string;
+  bookingKeys?: string[];
   subject: string;
   amount: number;
   at: number | null;
@@ -237,7 +238,7 @@ function eventFor(record: RecordDoc, moduleId: string, moduleLabel: string, owne
     tone = /failed|cancelled|declined/.test(status) ? 'red' : /completed|confirmed|paid|success/.test(status) ? 'green' : 'blue';
     action = /completed/.test(status) ? 'Completed website booking' : /confirmed|paid|success/.test(status) ? 'Confirmed website booking' : /failed|cancelled|declined/.test(status) ? 'Booking payment failed' : 'Created website booking';
     description = `${customerName(record)} booked ${subject}${total ? ` · ${money(total)}` : ''}.`;
-    href = '/admin/orders';
+    href = `/admin/bookings?view=all&q=${encodeURIComponent(recordId)}`;
   } else if (moduleId === 'customers') {
     action = 'Saved customer'; tone = 'blue';
     description = `${customerName(record)} was saved to the customer list.`;
@@ -257,9 +258,9 @@ function eventFor(record: RecordDoc, moduleId: string, moduleLabel: string, owne
     action = 'Updated store settings'; tone = 'yellow'; description = 'Store settings were changed.';
   } else if (moduleId === 'webhookDeliveries') {
     const deliveryStatus = field(record, ['status', 'result', 'deliveryStatus']).toLowerCase();
-    tone = /fail|error|retry/.test(deliveryStatus) ? 'red' : 'green';
-    action = tone === 'red' ? 'Webhook failed or retried' : 'Webhook delivered';
-    description = `${field(record, ['eventType', 'event', 'topic', 'type'], 'Webhook event')} ${deliveryStatus || 'was processed'}.`;
+    tone = /fail|error|retry/.test(deliveryStatus) ? 'red' : /^(success|delivered|accepted)$/.test(deliveryStatus) ? 'green' : 'slate';
+    action = tone === 'red' ? 'Webhook failed or retried' : tone === 'green' ? 'Webhook delivered' : 'Webhook processed / status unknown';
+    description = `${field(record, ['eventType', 'event', 'topic', 'type'], 'Webhook event')} ${deliveryStatus || 'was processed'}. Email delivery is tracked separately.`;
     href = '/admin/deliveries';
   } else if (moduleId === 'analyticsEvents') {
     const eventName = field(record, ['eventName', 'event', 'name', 'type'], 'client_action').toLowerCase();
@@ -269,7 +270,7 @@ function eventFor(record: RecordDoc, moduleId: string, moduleLabel: string, owne
     href = '/admin/analytics';
   }
 
-  return { id: `${moduleId}-${ownerId}-${recordId}`, storeId: ownerId, moduleId, moduleLabel, action, description, recordId, subject, amount: total, at, href, tone };
+  return { id: `${moduleId}-${ownerId}-${recordId}`, storeId: ownerId, moduleId, moduleLabel, action, description, recordId, bookingKeys: moduleId === 'bookings' ? [...new Set([recordId, text(record.bookingId), text(record.booking_id), text(record.reference), text(record.bookingReference)].filter(Boolean))] : undefined, subject, amount: total, at, href, tone };
 }
 
 function isTransaction(event: ActivityEvent) { return event.moduleId === 'orders' || event.moduleId === 'bookings'; }
@@ -341,6 +342,35 @@ export default async function StoreActivityPage({ searchParams }: { searchParams
   const query = (params.q || '').trim().toLowerCase();
   const data = await loadData();
   const stores = query ? data.stores.filter((store) => [store.name, store.id, store.contact, store.phone, ...store.recentEvents.map((event) => `${event.action} ${event.description}`)].join(' ').toLowerCase().includes(query)) : data.stores;
+  // Only query the booking events that can actually be rendered on this page.
+  const visibleBookingEvents = [...stores.flatMap(store => store.recentEvents.slice(0, 5)), ...data.events.slice(0, 12)].filter(event => event.moduleId === 'bookings');
+  const keys = [...new Set(visibleBookingEvents.flatMap(event => event.bookingKeys || [event.recordId]))];
+  let emailRows: RecordDoc[] | null = [];
+  try {
+    if (keys.length) emailRows = (await listBookingNotifications(keys, keys)).documents as RecordDoc[];
+  } catch { emailRows = null; }
+  const bookingEmailDetail = (event: ActivityEvent) => {
+    if (event.moduleId !== 'bookings') return '';
+    if (!emailRows) return 'Email status unavailable';
+    const ids = event.bookingKeys || [event.recordId];
+    const rows = emailRows.filter(row => {
+      const payload = asRecord(row.data) || {};
+      return text(row.storeId) === event.storeId && [text(row.reference), text(payload.bookingId), text(payload.booking_id)].some(id => ids.includes(id));
+    }).sort((a, b) => (recordTime(b) || 0) - (recordTime(a) || 0));
+    const latestEvent = rows[0]?.eventType;
+    const recipients = rows.filter(row => row.eventType === latestEvent);
+    const describe = (kind: string) => {
+      const matches = recipients.filter(row => text(row.recipientType) === kind);
+      const latest = [...new Map(matches.slice().reverse().map(row => [text(row.to), row])).values()];
+      if (!latest.length) return 'No email record';
+      return latest.map(row => {
+        const state = text(row.status, 'queued');
+        const label = state === 'delivery_accepted' ? 'Accepted by sender' : state === 'queued_no_live_sender' ? 'No live sender' : state.replace(/_/g, ' ');
+        return [label, text(row.deliveryReason ?? row.errorMessage)].filter(Boolean).join(' — ');
+      }).join('; ');
+    };
+    return `Client email: ${describe('customer')} · Store email: ${describe('store')}`;
+  };
   const active = data.stores.filter((store) => store.status === 'active' || store.status === 'warm').length;
   const totalRevenue = data.stores.reduce((sum, store) => sum + store.revenue, 0);
   const totalRecords = data.stores.reduce((sum, store) => sum + store.totalRecords, 0);
@@ -353,9 +383,9 @@ export default async function StoreActivityPage({ searchParams }: { searchParams
         <div className="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200">{stores.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">No store activity matches this search.</div> : stores.map((store) => <div key={store.id} className="grid gap-4 p-4 xl:grid-cols-[1fr_0.5fr_0.7fr_1.6fr_0.55fr]">
           <Link href={`/admin/stores/${encodeURIComponent(store.id)}`} className="flex min-w-0 gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600"><Store className="h-4 w-4" /></span><div className="min-w-0"><p className="truncate font-semibold text-slate-950">{store.name}</p><p className="truncate text-xs text-slate-500">{store.contact} · {store.phone}</p><p className="truncate text-xs text-slate-400">{store.id}</p></div></Link>
           <div><StatusBadge tone={badgeTone(store.status)}>{store.status === 'empty' ? 'No activity' : store.status}</StatusBadge></div><div><p className="font-medium text-slate-900">{age(store.lastAt)}</p><p className="text-xs text-slate-500">{date(store.lastAt)}</p><p className="mt-1 text-xs text-slate-400">{store.totalRecords} raw records</p></div>
-          <div className="space-y-2">{store.recentEvents.slice(0, 5).map((event) => <Link key={event.id} href={event.href} className="block rounded-2xl bg-slate-50 p-3 hover:bg-slate-100"><div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{event.action}</p><StatusBadge tone={event.tone}>{age(event.at)}</StatusBadge></div><p className="mt-1 text-xs leading-5 text-slate-600">{event.description}</p><p className="mt-1 text-[11px] text-slate-400">{event.moduleLabel} · {event.recordId}</p></Link>)}{store.recentEvents.length > 5 ? <p className="text-xs text-slate-500">+{store.recentEvents.length - 5} more business actions</p> : null}</div><div className="font-semibold text-slate-950">{money(store.revenue)}</div></div>)}</div>
+          <div className="space-y-2">{store.recentEvents.slice(0, 5).map((event) => <Link key={event.id} href={event.href} className="block rounded-2xl bg-slate-50 p-3 hover:bg-slate-100"><div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{event.action}</p><StatusBadge tone={event.tone}>{age(event.at)}</StatusBadge></div><p className="mt-1 text-xs leading-5 text-slate-600">{event.description}</p>{event.moduleId === 'bookings' ? <p className="mt-1 text-xs text-slate-600">{bookingEmailDetail(event)}</p> : null}<p className="mt-1 text-[11px] text-slate-400">{event.moduleLabel} · {event.recordId}</p></Link>)}{store.recentEvents.length > 5 ? <p className="text-xs text-slate-500">+{store.recentEvents.length - 5} more business actions</p> : null}</div><div className="font-semibold text-slate-950">{money(store.revenue)}</div></div>)}</div>
       </SectionCard>
-      <div className="space-y-6"><SectionCard title="Latest business actions"><div className="space-y-3">{data.events.slice(0, 12).map((event) => <Link key={event.id} href={event.href} className="block rounded-2xl bg-slate-50 p-4 text-sm hover:bg-slate-100"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-slate-950">{event.action}</p><p className="mt-1 text-xs leading-5 text-slate-600">{event.description}</p></div><StatusBadge tone={event.tone}>{age(event.at)}</StatusBadge></div><p className="mt-2 flex items-center gap-1 text-[11px] text-slate-400"><Clock3 className="h-3 w-3" /> {date(event.at)}</p></Link>)}</div></SectionCard><SectionCard title="How activity is classified"><div className="flex gap-3 rounded-2xl bg-indigo-50 p-4 text-sm text-indigo-900"><Activity className="h-5 w-5 shrink-0" /><p>Paid orders and confirmed bookings are shown as sales or booking actions. Product and public-catalog writes at the same time for the same item are treated as inventory sync and hidden, while genuine standalone catalog edits remain visible.</p></div></SectionCard></div>
+      <div className="space-y-6"><SectionCard title="Latest business actions"><div className="space-y-3">{data.events.slice(0, 12).map((event) => <Link key={event.id} href={event.href} className="block rounded-2xl bg-slate-50 p-4 text-sm hover:bg-slate-100"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-slate-950">{event.action}</p><p className="mt-1 text-xs leading-5 text-slate-600">{event.description}</p>{event.moduleId === 'bookings' ? <p className="mt-1 text-xs text-slate-600">{bookingEmailDetail(event)}</p> : null}</div><StatusBadge tone={event.tone}>{age(event.at)}</StatusBadge></div><p className="mt-2 flex items-center gap-1 text-[11px] text-slate-400"><Clock3 className="h-3 w-3" /> {date(event.at)}</p></Link>)}</div></SectionCard><SectionCard title="How activity is classified"><div className="flex gap-3 rounded-2xl bg-indigo-50 p-4 text-sm text-indigo-900"><Activity className="h-5 w-5 shrink-0" /><p>Paid orders and confirmed bookings are shown as sales or booking actions. Product and public-catalog writes at the same time for the same item are treated as inventory sync and hidden, while genuine standalone catalog edits remain visible.</p></div></SectionCard></div>
     </section>
   </div>;
 }
